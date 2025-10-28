@@ -1,0 +1,8 @@
+Enter SiPM tray numbers to process in batch
+
+$START
+250821-1301
+250821-1302
+250821-1303
+250821-1304
+250717-1304
