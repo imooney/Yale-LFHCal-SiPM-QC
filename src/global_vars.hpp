@@ -25,7 +25,7 @@ Color::TextModifier t_def(Color::TEXT_DEFAULT);
 const char Hamamatsu_SiPM_Code[20] = "S14160-1315PS";
 
 // Variables for allowed Q/A Ranges
-const double declare_Vbd_outlier_range = 0.05; // +/- 50mV range around average
+const double declare_Vbd_outlier_range = 0.050; // +/- 50mV range around average
 
 // Fixed arraay info variables
 const int NROW = 20;

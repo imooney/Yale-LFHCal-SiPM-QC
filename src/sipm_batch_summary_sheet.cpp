@@ -71,7 +71,7 @@ void sipm_batch_summary_sheet() {
   
   
   // Test averaging methods
-  int tray_index = 4;
+  int tray_index = 0;
   std::cout << "Average V_peak for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t\t:: " << getAvgVpeak(tray_index, false) << std::endl;
   std::cout << "Average V_peak (25C) for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t:: " << getAvgVpeak(tray_index, true) << std::endl;
   std::cout << "Average V_bd for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t\t:: " << getAvgVbreakdown(tray_index, false) << std::endl;
@@ -100,6 +100,11 @@ void sipm_batch_summary_sheet() {
   makeTrayMapVbreakdown(false);
   makeTestMapVpeak(false);
   makeTestMapVbreakdown(false);
+  
+  gReader->WriteCompressedFile(0);
+  gReader->WriteCompressedFile(1);
+  gReader->WriteCompressedFile(2);
+  gReader->WriteCompressedFile(3);
   
 }
 
@@ -262,15 +267,23 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     
     // Append all data
     if (flag_run_at_25_celcius) {
-      for (int i_IV = 1; i_IV <= IV_size; ++i_IV)
+      for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
+//        if (gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV) == 0) continue;
         hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV - 1));
-      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS)
+      }
+      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
+//        if (gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS - 1) == 0) continue;
         hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS - 1));
+      }
     } else {
-      for (int i_IV = 1; i_IV <= IV_size; ++i_IV)
+      for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
+//        if (gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV - 1) == 0) continue;
         hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV - 1));
-      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS)
+      }
+      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
+//        if (gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1) == 0) continue;
         hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+      }
     }
     
     // plot histograms

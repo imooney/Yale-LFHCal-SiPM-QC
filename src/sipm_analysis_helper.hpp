@@ -60,7 +60,11 @@ int countSiPMsAllTrays() {
   int count_SiPM = 0;
   for (std::vector<IV_data*>::iterator tray_to_analyze = gReader->GetIV()->begin();
        tray_to_analyze != gReader->GetIV()->end(); ++tray_to_analyze) {
-    count_SiPM += (*tray_to_analyze)->IV_Vpeak->size();
+    for (std::vector<float>::iterator it = (*tray_to_analyze)->IV_Vpeak->begin();
+         it != (*tray_to_analyze)->IV_Vpeak->end(); ++it) {
+      if (*it == -999) continue; // -999: failed measurement or missing SiPM
+      ++count_SiPM;
+    }
   }return count_SiPM;
 }// End of sipm_analysis_helper::countSiPMsAllTrays
 
@@ -164,14 +168,21 @@ double getAvgVpeak(int tray_index, bool flag_run_at_25_celcius) {
   
   IV_data* tray_to_analyze = gReader->GetIV()->at(tray_index);
   double avg_Vpeak = 0;
+  int count_failed_measurements = 0;
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak_25C->begin();
-         it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) avg_Vpeak += *it;
-    avg_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak_25C->size());
+         it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      avg_Vpeak += *it;
+    }
+    avg_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak_25C->size() - count_failed_measurements);
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak->begin();
-         it != tray_to_analyze->IV_Vpeak->end(); ++it) avg_Vpeak += *it;
-    avg_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak->size());
+         it != tray_to_analyze->IV_Vpeak->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      avg_Vpeak += *it;
+    }
+    avg_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak->size() - count_failed_measurements);
   }return avg_Vpeak;
 }// End of sipm_analysis_helper::getAvgVpeak
 
@@ -182,22 +193,25 @@ double getAvgVpeak(int tray_index, bool flag_run_at_25_celcius) {
 // or under the extrapolation to 25 degrees Celcius.
 double getAvgVpeakAllTrays(bool flag_run_at_25_celcius) {
   double avg_Vpeak = 0;
-  int total_SiPMs = 0;
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<IV_data*>::iterator tray_to_analyze = gReader->GetIV()->begin();
          tray_to_analyze != gReader->GetIV()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->IV_Vpeak_25C->begin();
-           it != (*tray_to_analyze)->IV_Vpeak_25C->end(); ++it) avg_Vpeak += *it;
-      total_SiPMs += (*tray_to_analyze)->IV_Vpeak_25C->size();
+           it != (*tray_to_analyze)->IV_Vpeak_25C->end(); ++it) {
+        if (*it == -999) continue;
+        avg_Vpeak += *it;
+      }
     }
   } else {// At recoreded temperature
     for (std::vector<IV_data*>::iterator tray_to_analyze = gReader->GetIV()->begin();
          tray_to_analyze != gReader->GetIV()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->IV_Vpeak->begin();
-           it != (*tray_to_analyze)->IV_Vpeak->end(); ++it) avg_Vpeak += *it;
-      total_SiPMs += (*tray_to_analyze)->IV_Vpeak->size();
+           it != (*tray_to_analyze)->IV_Vpeak->end(); ++it) {
+        if (*it == -999) continue;
+        avg_Vpeak += *it;
+      }
     }
-  }return avg_Vpeak / static_cast<double>(total_SiPMs);
+  }return avg_Vpeak / countSiPMsAllTrays();
 }// End of sipm_analysis_helper::getAvgVpeakAllTrays
 
 
@@ -213,14 +227,21 @@ double getAvgVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
   
   SPS_data* tray_to_analyze = gReader->GetSPS()->at(tray_index);
   double avg_Vbreakdown = 0;
+  int count_failed_measurements = 0;
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
-         it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) avg_Vbreakdown += *it;
-    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size());
+         it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      avg_Vbreakdown += *it;
+    }
+    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size() - count_failed_measurements);
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
-         it != tray_to_analyze->SPS_Vbd->end(); ++it) avg_Vbreakdown += *it;
-    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size());
+         it != tray_to_analyze->SPS_Vbd->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      avg_Vbreakdown += *it;
+    }
+    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size() - count_failed_measurements);
   }return avg_Vbreakdown;
 }// End of sipm_analysis_helper::getAvgVbreakdown
 
@@ -231,22 +252,25 @@ double getAvgVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
 // or under the extrapolation to 25 degrees Celcius.
 double getAvgVbreakdownAllTrays(bool flag_run_at_25_celcius) {
   double avg_Vbreakdown = 0;
-  int total_SiPMs = 0;
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<SPS_data*>::iterator tray_to_analyze = gReader->GetSPS()->begin();
          tray_to_analyze != gReader->GetSPS()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->SPS_Vbd_25C->begin();
-           it != (*tray_to_analyze)->SPS_Vbd_25C->end(); ++it) avg_Vbreakdown += *it;
-      total_SiPMs += (*tray_to_analyze)->SPS_Vbd_25C->size();
+           it != (*tray_to_analyze)->SPS_Vbd_25C->end(); ++it) {
+        if (*it == -999) continue;
+        avg_Vbreakdown += *it;
+      }
     }
   } else {// At recoreded temperature
     for (std::vector<SPS_data*>::iterator tray_to_analyze = gReader->GetSPS()->begin();
          tray_to_analyze != gReader->GetSPS()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->SPS_Vbd->begin();
-           it != (*tray_to_analyze)->SPS_Vbd->end(); ++it) avg_Vbreakdown += *it;
-      total_SiPMs += (*tray_to_analyze)->SPS_Vbd->size();
+           it != (*tray_to_analyze)->SPS_Vbd->end(); ++it) {
+        if (*it == -999) continue;
+        avg_Vbreakdown += *it;
+      }
     }
-  }return avg_Vbreakdown/static_cast<double>(total_SiPMs);
+  }return avg_Vbreakdown / countSiPMsAllTrays();
 }// End of sipm_analysis_helper::getAvgVbreakdownAllTrays
 
 //========================================================================== RMS/STDev/Error

@@ -292,16 +292,17 @@ public:
       
       // initialize
       for (int i = 0; i < NROW*NCOL; ++i) {
-        row_local->push_back(0);
-        col_local->push_back(0);
-        avg_temp_local->push_back(0);
-        stdev_temp_local->push_back(0);
-        IV_Vpeak_local->push_back(0);
-        IV_Vpeak_25C_local->push_back(0);
-        Idark_3below_local->push_back(0);
-        Idark_4above_local->push_back(0);
-        Idark_temp_local->push_back(0);
-        forward_res_local->push_back(0);
+        row_local->push_back(-999);
+        col_local->push_back(-999);
+        avg_temp_local->push_back(-999);
+        stdev_temp_local->push_back(-999);
+        IV_Vpeak_local->push_back(-999);
+        IV_Vpeak_25C_local->push_back(-999);
+        Idark_3below_local->push_back(-999);
+        Idark_4above_local->push_back(-999);
+        Idark_temp_local->push_back(-999);
+        forward_res_local->push_back(-999);
+        // -999: failed measurement or missing SiPM 
       }
       
       // *-- READ IV DATA FROM FILE
@@ -430,18 +431,19 @@ public:
       
       // initialize
       for (int i = 0; i < NROW*NCOL; ++i) {
-        row_local->push_back(0);
-        col_local->push_back(0);
-        avg_temp_local->push_back(0);
-        stdev_temp_local->push_back(0);
-        SPS_npeaks_local->push_back(0);
-        SPS_peakwidth_local->push_back(0);
-        SPS_Vbd_local->push_back(0);
-        SPS_Vbd_25C_local->push_back(0);
-        SPS_Vbd_unc_local->push_back(0);
-        SPS_chi2ndf_local->push_back(0);
-        fit_parm_0_local->push_back(0);
-        fit_parm_1_local->push_back(0);
+        row_local->push_back(-999);
+        col_local->push_back(-999);
+        avg_temp_local->push_back(-999);
+        stdev_temp_local->push_back(-999);
+        SPS_npeaks_local->push_back(-999);
+        SPS_peakwidth_local->push_back(-999);
+        SPS_Vbd_local->push_back(-999);
+        SPS_Vbd_25C_local->push_back(-999);
+        SPS_Vbd_unc_local->push_back(-999);
+        SPS_chi2ndf_local->push_back(-999);
+        fit_parm_0_local->push_back(-999);
+        fit_parm_1_local->push_back(-999);
+        // -999: failed measurement or missing SiPM
       }
       
       // *-- READ SPS DATA FROM FILE
@@ -537,6 +539,31 @@ public:
     if (verbose_mode) std::cout << "Finished gathering all SPS data." << std::endl;
     return;
   }// End of SiPMDataReader::ReadDataSPS
+  
+  // *---------------- Simple output formatters
+  
+  
+  void WriteCompressedFile(int tray_index) {
+    if (tray_index > this->tray_strings->size()) return;
+    
+    char outfile_dir[100];
+    snprintf(outfile_dir, 100, "../data/%s-results/results-condensed.txt",tray_strings->at(tray_index).c_str());
+    
+    std::ofstream outfile(outfile_dir);
+    
+    IV_data* tray_IV_data = IV_internal->at(tray_index);
+    SPS_data* tray_SPS_data = SPS_internal->at(tray_index);
+    
+    for (int i = 0; i < tray_IV_data->IV_Vpeak->size(); ++i) {
+//      outfile << tray_IV_data->row->at(i) << '\t';
+//      outfile << tray_IV_data->col->at(i) << '\t';
+      outfile << tray_SPS_data->SPS_Vbd->at(i) << '\t';
+      outfile << tray_IV_data->IV_Vpeak->at(i) << std::endl;
+    }
+    
+    outfile.close();
+  }
+  
   
   // *---------------- Destructor
   
