@@ -88,7 +88,8 @@ int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
   }
   
   // Compare against the average +/- 50mv
-  double V_avg = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
+  double V_avg = getAvgVbreakdownAllTrays(flag_run_at_25_celcius);
+//  double V_avg = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
   
   SPS_data* tray_to_analyze = gReader->GetSPS()->at(tray_index);
   double avg_Vbreakdown = 0;
@@ -275,8 +276,67 @@ double getAvgVbreakdownAllTrays(bool flag_run_at_25_celcius) {
 
 //========================================================================== RMS/STDev/Error
 
+// Compute the stdev V_peak (IV curve) for a given tray
+// The computation can be done at the recorded temperatures (which vary)
+// or under the extrapolation to 25 degrees Celcius.
+double getStdevVpeak(int tray_index, bool flag_run_at_25_celcius) {
+  if (tray_index < 0 || tray_index >=  gReader->GetIV()->size()) {
+    std::cerr << "Error in <sipm_batch_summary_sheet_hpp::getStdevVpeak>: Invalid index." << std::endl;
+    return -1;
+  }
+  
+  IV_data* tray_to_analyze = gReader->GetIV()->at(tray_index);
+  double avg_Vpeak = getAvgVpeak(tray_index, flag_run_at_25_celcius);
+  double stdev_Vpeak = 0;
+  int count_failed_measurements = 0;
+  if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
+    for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak_25C->begin();
+         it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      stdev_Vpeak += (*it - avg_Vpeak)*(*it - avg_Vpeak);
+    }
+    stdev_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak_25C->size() - count_failed_measurements);
+  } else {// At recoreded temperature
+    for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak->begin();
+         it != tray_to_analyze->IV_Vpeak->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      stdev_Vpeak += (*it - avg_Vpeak)*(*it - avg_Vpeak);
+    }
+    stdev_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak->size() - count_failed_measurements);
+  }return std::sqrt(stdev_Vpeak);
+}// End of sipm_analysis_helper::getStdevVpeak
 
-// TODO
+
+
+// Compute the stdev V_breakdown (SPS curve) for a given tray
+// The computation can be done at the recorded temperatures (which vary)
+// or under the extrapolation to 25 degrees Celcius.
+double getStdevVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
+  if (tray_index < 0 || tray_index >=  gReader->GetSPS()->size()) {
+    std::cerr << "Error in <sipm_batch_summary_sheet_hpp::getStdevVbreakdown>: Invalid index." << std::endl;
+    return -1;
+  }
+  
+  SPS_data* tray_to_analyze = gReader->GetSPS()->at(tray_index);
+  double avg_Vbreakdown = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
+  double stdev_Vbreakdown = 0;
+  int count_failed_measurements = 0;
+  if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
+    for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
+         it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      stdev_Vbreakdown += (*it - avg_Vbreakdown)*(*it - avg_Vbreakdown);
+    }
+    stdev_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size() - count_failed_measurements);
+  } else {// At recoreded temperature
+    for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
+         it != tray_to_analyze->SPS_Vbd->end(); ++it) {
+      if (*it == -999) {++count_failed_measurements; continue;}
+      stdev_Vbreakdown += (*it - avg_Vbreakdown)*(*it - avg_Vbreakdown);
+    }
+    stdev_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size() - count_failed_measurements);
+  }return std::sqrt(stdev_Vbreakdown);
+}// End of sipm_analysis_helper::getStdevVbreakdown
 
 
 #endif /* sipm_analysis_helper_h */

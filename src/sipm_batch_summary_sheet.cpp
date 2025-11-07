@@ -44,6 +44,7 @@ Int_t plot_colors[3] = {
 void makeHist_IV_Vpeak(bool flag_run_at_25_celcius = true);
 void makeHist_SPS_Vbreakdown(bool flag_run_at_25_celcius = true);
 void makeIndexSeries(bool flag_run_at_25_celcius = true);
+void makeIndexedTray(bool flag_run_at_25_celcius);
 void makeIndexCassette(bool flag_run_at_25_celcius = true);
 void makeTrayMapVpeak(bool flag_run_at_25_celcius = true);
 void makeTrayMapVbreakdown(bool flag_run_at_25_celcius = true);
@@ -71,18 +72,24 @@ void sipm_batch_summary_sheet() {
   
   
   // Test averaging methods
-  int tray_index = 0;
-  std::cout << "Average V_peak for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t\t:: " << getAvgVpeak(tray_index, false) << std::endl;
-  std::cout << "Average V_peak (25C) for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t:: " << getAvgVpeak(tray_index, true) << std::endl;
-  std::cout << "Average V_bd for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t\t:: " << getAvgVbreakdown(tray_index, false) << std::endl;
-  std::cout << "Average V_bd (25C) for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t:: " << getAvgVbreakdown(tray_index, true);
-  std::cout << " (" << t_red << countOutliersVbreakdown(tray_index, true) << t_def << " Outliers beyond tray avg +/-" << declare_Vbd_outlier_range << "V)" << std::endl;
+//  int tray_index = 0;
+//  std::cout << "Average V_peak for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t\t:: " << getAvgVpeak(tray_index, false) << std::endl;
+//  std::cout << "Average V_peak (25C) for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t:: " << getAvgVpeak(tray_index, true) << std::endl;
+//  std::cout << "Average V_bd for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t\t:: " << getAvgVbreakdown(tray_index, false) << std::endl;
+//  std::cout << "Average V_bd (25C) for tray " << gReader->GetTrayStrings()->at(tray_index) << " \t:: " << getAvgVbreakdown(tray_index, true);
+//  std::cout << " (" << t_red << countOutliersVbreakdown(tray_index, true) << t_def << " Outliers beyond tray avg +/-" << declare_Vbd_outlier_range << "V)" << std::endl;
+//  
+//  std::cout << "For all trays ::" << std::endl;
+//  std::cout << "Average V_peak for all trays \t\t\t:: " << getAvgVpeakAllTrays(false) << std::endl;
+//  std::cout << "Average V_peak for all trays (25C) \t\t:: " << getAvgVpeakAllTrays(true) << std::endl;
+//  std::cout << "Average V_bd for all trays \t\t\t:: " << getAvgVbreakdownAllTrays(false) << std::endl;
+//  std::cout << "Average V_bd for all trays (25C) \t\t:: " << getAvgVbreakdownAllTrays(true) << std::endl;
   
-  std::cout << "For all trays ::" << std::endl;
-  std::cout << "Average V_peak for all trays \t\t\t:: " << getAvgVpeakAllTrays(false) << std::endl;
-  std::cout << "Average V_peak for all trays (25C) \t\t:: " << getAvgVpeakAllTrays(true) << std::endl;
-  std::cout << "Average V_bd for all trays \t\t\t:: " << getAvgVbreakdownAllTrays(false) << std::endl;
-  std::cout << "Average V_bd for all trays (25C) \t\t:: " << getAvgVbreakdownAllTrays(true) << std::endl;
+  int n_trays = gReader->GetTrayStrings()->size();
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    std::cout << "Average V_bd (25C) for tray " << gReader->GetTrayStrings()->at(i_tray) << " \t:: " << getAvgVbreakdown(i_tray, true);
+    std::cout << " (" << t_red << countOutliersVbreakdown(i_tray, true) << t_def << " Outliers beyond tray avg +/-" << declare_Vbd_outlier_range << "V)" << std::endl;
+  }
   
   // Make series at ambient temp and 25C corrected
   makeIndexSeries(true);
@@ -101,10 +108,12 @@ void sipm_batch_summary_sheet() {
   makeTestMapVpeak(false);
   makeTestMapVbreakdown(false);
   
-  gReader->WriteCompressedFile(0);
-  gReader->WriteCompressedFile(1);
-  gReader->WriteCompressedFile(2);
-  gReader->WriteCompressedFile(3);
+//  gReader->WriteCompressedFile(0);
+//  gReader->WriteCompressedFile(1);
+//  gReader->WriteCompressedFile(2);
+//  gReader->WriteCompressedFile(3);
+  
+  makeIndexedTray(true);
   
 }
 
@@ -378,16 +387,21 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
   return;
 }// End of sipm_batch_summary_sheet::makeIndexSeries
 
+
+
 // Make brief indexed tray V_breakdown measurement summary
 // This will show the average V_brakdown from IV and SPS measurements
 // From each tray with errors representing the spread of data for each tray
-void makeTrayAverageVbdSummary(bool flag_run_at_25_celcius) {
+//
+// TODO return TObjectArray for summary sheet
+void makeIndexedTray(bool flag_run_at_25_celcius) {
   
   gCanvas_solo->Clear();
   gCanvas_solo->SetCanvasSize(750, 600); // TODO size of canvas varies with number of trays
   gCanvas_solo->cd();
   gPad->SetTicks(1,1);
   gPad->SetRightMargin(0.03);
+  gPad->SetLeftMargin(0.11);
   gPad->SetTopMargin(0.11);
   
   // Histograms
@@ -401,18 +415,103 @@ void makeTrayAverageVbdSummary(bool flag_run_at_25_celcius) {
   
   // Gather avg data and add to histogram
   for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
-//    
-//    hist_indexed_Vpeak_tray->SetBinContent(getAvgVpeak(i_tray, flag_run_at_25_celcius));
-//    hist_indexed_Vpeak_tray->SetBinError(0);
-//    
-//    hist_indexed_Vbreakdown_tray->SetBinContent(getAvgVbreakdown(i_tray, flag_run_at_25_celcius));
-//    hist_indexed_Vbreakdown_tray->SetBinError(0);
+    hist_indexed_Vpeak_tray->GetXaxis()->SetBinLabel(i_tray + 1, gReader->GetTrayStrings()->at(i_tray).c_str());
     
+    hist_indexed_Vpeak_tray->SetBinContent(i_tray + 1, getAvgVpeak(i_tray, flag_run_at_25_celcius));
+    hist_indexed_Vpeak_tray->SetBinError(i_tray + 1, getStdevVpeak(i_tray, flag_run_at_25_celcius));
+
+    hist_indexed_Vbreakdown_tray->SetBinContent(i_tray + 1, getAvgVbreakdown(i_tray, flag_run_at_25_celcius));
+    hist_indexed_Vbreakdown_tray->SetBinError(i_tray + 1, getStdevVbreakdown(i_tray, flag_run_at_25_celcius));
   }
   
+  // plot histograms
+  gCanvas_solo->cd();
+  hist_indexed_Vpeak_tray->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]);
+  hist_indexed_Vpeak_tray->GetYaxis()->SetTitleOffset(1.35);
+  hist_indexed_Vpeak_tray->SetLineColor(plot_colors[0]);
+  hist_indexed_Vpeak_tray->SetLineWidth(2);
+  hist_indexed_Vpeak_tray->SetFillColorAlpha(plot_colors[0],0);
+  hist_indexed_Vpeak_tray->SetMarkerColor(plot_colors[0]);
+  hist_indexed_Vpeak_tray->SetMarkerStyle(20);
+  hist_indexed_Vpeak_tray->SetMarkerSize(2);
+  hist_indexed_Vpeak_tray->Draw("b p e1 x0");
+  
+  hist_indexed_Vbreakdown_tray->SetLineColor(plot_colors[1]);
+  hist_indexed_Vbreakdown_tray->SetLineWidth(2);
+  hist_indexed_Vbreakdown_tray->SetFillColorAlpha(plot_colors[1],0);
+  hist_indexed_Vbreakdown_tray->SetMarkerColor(plot_colors[1]);
+  hist_indexed_Vbreakdown_tray->SetMarkerStyle(21);
+  hist_indexed_Vbreakdown_tray->SetMarkerSize(2);
   
   
-}// End of sipm_batch_summary_sheet::makeTrayAverageVbdSummary
+  // Draw reference averaged +/- 50 MV lines, average over all trays
+  
+  double avg_voltages[2];
+  avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
+  avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
+  
+  // TObjects for drawing
+  TLine* avg_line = new TLine();
+  TLine* dev_line = new TLine();
+  
+  // Average line: V_peak (IV)
+  avg_line->SetLineColor(kBlack);
+  avg_line->DrawLine(0, avg_voltages[0], n_trays, avg_voltages[0]);
+  dev_line->SetLineColor(kGray+2);
+  dev_line->SetLineStyle(7);
+  dev_line->DrawLine(0, avg_voltages[0]+0.05, n_trays, avg_voltages[0]+0.05);
+  dev_line->DrawLine(0, avg_voltages[0]-0.05, n_trays, avg_voltages[0]-0.05);
+  
+  // Average line: V_breakdown (SPS)
+  avg_line->DrawLine(0, avg_voltages[1], n_trays, avg_voltages[1]);
+  dev_line->DrawLine(0, avg_voltages[1]+0.05, n_trays, avg_voltages[1]+0.05);
+  dev_line->DrawLine(0, avg_voltages[1]-0.05, n_trays, avg_voltages[1]-0.05);
+  
+  // SiPM batch delimeter lines (if relevant) TODO make dynamic (include tray storter in SiPMDataReader)
+  TLine* batch_line = new TLine();
+  batch_line->SetLineColor(kGray+1);
+  batch_line->SetLineStyle(6);
+  batch_line->DrawLine(4, voltplot_limits[0], 4, voltplot_limits[1]);
+  
+  // assure points sit on top of lines
+  hist_indexed_Vpeak_tray->Draw("b p e1 x0 same");
+  hist_indexed_Vbreakdown_tray->Draw("b p e1 x0 same");
+  
+  // Legend for labeling the two V_breakdown measurement types
+  float leg_extra_space = 0;
+  if (flag_run_at_25_celcius) leg_extra_space = 0.04;
+  TLegend* vbd_legend = new TLegend(0.625, 0.36 + leg_extra_space, 0.94, 0.51 + leg_extra_space);
+  vbd_legend->SetLineWidth(0);
+  vbd_legend->AddEntry(hist_indexed_Vpeak_tray, "IV V_{bd} (also called V_{peak})", "p");
+  vbd_legend->AddEntry(hist_indexed_Vbreakdown_tray, "SPS V_{bd}", "p");
+  vbd_legend->Draw();
+  
+  // Draw some text giving info on the setup
+  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.06, 0.91, false, kBlack, 0.04);
+  drawText("#bf{ePIC} Test Stand", 0.06, 0.955, false, kBlack, 0.045);
+  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 0.98, 0.95, true, kBlack, 0.045);
+  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.98, 0.905, true, kBlack, 0.035);
+  
+  // Draw some text about the batches
+  drawText(Form("Batch %s", gReader->GetTrayStrings()->at(0).substr(0,6).c_str()), 0.155, 0.81, false, kBlack, 0.04);
+  drawText(Form("Batch %s (ORNL)", gReader->GetTrayStrings()->at(4).substr(0,6).c_str()), 0.63, 0.81, false, kBlack, 0.04);
+  
+  
+  // Legend for the lines marking tray average, test sets
+  TLegend* line_legend = new TLegend(0.15, 0.315 + leg_extra_space, 0.5, 0.55 + leg_extra_space);
+  line_legend->SetLineWidth(0);
+  line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
+  line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
+  line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
+  line_legend->Draw();
+  
+  gCanvas_solo->SaveAs(Form("../plots/batch_plots/batch_Vbr_trayavg%s.pdf",string_tempcorr_short[flag_run_at_25_celcius]));
+  
+  delete hist_indexed_Vpeak_tray;
+  delete hist_indexed_Vbreakdown_tray;
+  
+}// End of sipm_batch_summary_sheet::makeIndexedTray
+
 
 
 // Construct a scatter plot of V_peak and V_bd vs SiPM cassette index (during testing)
