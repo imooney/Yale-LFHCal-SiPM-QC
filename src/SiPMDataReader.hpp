@@ -76,6 +76,9 @@ class SiPMDataReader {
 private:
   // *---------------- Class variables
   
+  // Primary input file to read strings of trays to use in analysis
+  std::string* batch_data_file;
+  
   // Strings for Hamamatsu Tray numbers to access from directories
   std::vector<std::string>* tray_strings;
   
@@ -97,7 +100,7 @@ private:
   // This specifies which trays are to be inspected in the current batch
   void GetBatchStrings() {
     if (verbose_mode) std::cout << "Reading intput file " << t_blu << batch_data_file << t_def << " for Tray batch numbers...";
-    std::ifstream infile(batch_data_file);
+    std::ifstream infile(batch_data_file->c_str());
     std::string cline;
     
     // Read specified file...
@@ -244,6 +247,23 @@ public:
     this->IV_internal = new std::vector<struct IV_data*>();
     this->SPS_internal = new std::vector<struct SPS_data*>();
     
+    this->batch_data_file = new std::string();
+    
+    gReader = this;
+  }
+  
+  SiPMDataReader(const char* batch_file) {
+    this->read_for_systematics = false;
+    
+    this->verbose_mode = true;
+    this->print_IV_all_SiPMs = false;
+    this->print_SPS_all_SiPMs = false;
+    
+    this->tray_strings = new std::vector<std::string>();
+    this->IV_internal = new std::vector<struct IV_data*>();
+    this->SPS_internal = new std::vector<struct SPS_data*>();
+    
+    this->batch_data_file = new std::string(batch_file);
     GetBatchStrings();
     
     gReader = this;
@@ -263,6 +283,15 @@ public:
   void                          SetPrintSPS()      {this->print_SPS_all_SiPMs = true;}
 
   // *---------------- Dynamic/Interfacing Getters
+  
+  void ReadFile(const char* filename) {
+    this->tray_strings = new std::vector<std::string>();
+    this->IV_internal = new std::vector<struct IV_data*>();
+    this->SPS_internal = new std::vector<struct SPS_data*>();
+    
+    this->batch_data_file = new std::string(filename);
+    GetBatchStrings();
+  }
   
   std::pair<int,int> GetTrayIndexFromTestIndex(int set, int cassette_index) {
     return std::make_pair((32*set + cassette_index)/23, (32*set + cassette_index)%23);

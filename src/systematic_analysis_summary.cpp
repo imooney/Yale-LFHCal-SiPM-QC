@@ -61,6 +61,7 @@ void drawGlobalReproducabilityHists();
 void systematic_analysis_summary() {
   // Read in trays to treat as current batch
   SiPMDataReader* reader = new SiPMDataReader();
+  reader->ReadFile("../batch_data_syst.txt");
 
   // Read IV and SPS data
   reader->ReadDataIV();

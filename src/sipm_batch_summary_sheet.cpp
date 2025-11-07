@@ -60,7 +60,7 @@ void makeHist_DarkCurrent();
 void sipm_batch_summary_sheet() {
   // Read in trays to treat as current batch
   SiPMDataReader* reader = new SiPMDataReader();
-
+  reader->ReadFile("../batch_data.txt");
   
   // Read IV and SPS data
   reader->ReadDataIV();
