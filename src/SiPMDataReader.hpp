@@ -83,6 +83,9 @@ private:
   std::vector<struct IV_data*>* IV_internal;
   std::vector<struct SPS_data*>* SPS_internal;
   
+  // Flags for systematic analysis
+  bool read_for_systematics; // TODO implement flags in reader
+  
   // flags for printing and debugging
   bool verbose_mode;           // Print a reasonable amount of info about processes as they occur
   bool print_IV_all_SiPMs;     // Print detailed IV test information for each SiPM in the batch list--large output
@@ -105,6 +108,13 @@ private:
       if (!flag_start) {
         if (cline[0] == '$') flag_start = true;
         continue;
+      }
+      
+      if (cline[0] == '#') continue; //For comments
+      
+      if (read_for_systematics) {
+        // Todo! Should make this more dynamic/less dependent on inputs
+        std::cout << "Systematics mode TODO" << std::endl;
       }
       
       // Append new tray string to list
@@ -153,8 +163,8 @@ private:
       } std::cout << "} do not exist or do not have the necessary files." << std::endl << std::endl;
       std::cout << "Note that each directory should be named [" << t_blu << "TRAY_INDEX" << t_def << "-results]," << std::endl;
       std::cout << "and should contain files {" << t_blu << "IV_result.txt" << t_def << ", ";
-      std::cout << t_blu << "SPS_result_onlynumbers.txt" << t_def << ", ";
-      std::cout << t_blu << "SPS_result.txt" << t_def << "}." << std::endl << std::endl;
+      std::cout << t_blu << "SPS_result_onlynumbers.txt" << t_def << "}";
+//      std::cout << t_blu << "SPS_result.txt" << t_def << "}." << std::endl << std::endl;
       
       if (valid_trays->empty()) {
         std::cerr << "No valid trays. Terminating..." << std::endl;
@@ -182,11 +192,11 @@ private:
     snprintf(dir, 50, "../data/%s-results", tray.c_str());
     
     // Files which each directory should have:
-    const int num_subfiles = 3;
+    const int num_subfiles = 2;
     const char filelist[num_subfiles][50] = {
       "IV_result.txt",
-      "SPS_result_onlynumbers.txt",
-      "SPS_result.txt"                    // TODO do we need this file? Maybe could be removed from the requirement.
+      "SPS_result_onlynumbers.txt"
+      //"SPS_result.txt"                    // TODO do we need this file? Maybe could be removed from the requirement.
     };
     
     // Use the stat struct to check the directory exists
@@ -224,6 +234,8 @@ public:
   // *---------------- Constructors
   
   SiPMDataReader() {
+    this->read_for_systematics = false;
+    
     this->verbose_mode = true;
     this->print_IV_all_SiPMs = false;
     this->print_SPS_all_SiPMs = false;
@@ -245,10 +257,49 @@ public:
   std::vector<SPS_data*>*       GetSPS()           {return this->SPS_internal;}
   std::vector<std::string>*     GetTrayStrings()   {return this->tray_strings;}
   
+  void                          SetSystematicMode(){this->read_for_systematics = true;} // should be run before running GetDataDebrecen
   void                          SetVerbose(bool v) {this->verbose_mode = v;}
   void                          SetPrintIV()       {this->print_IV_all_SiPMs = true;}
   void                          SetPrintSPS()      {this->print_SPS_all_SiPMs = true;}
 
+  // *---------------- Dynamic/Interfacing Getters
+  
+  std::pair<int,int> GetTrayIndexFromTestIndex(int set, int cassette_index) {
+    return std::make_pair((32*set + cassette_index)/23, (32*set + cassette_index)%23);
+  }
+  
+  std::pair<int,int> GetTestIndexFromTrayIndex(int row, int col) {
+    return std::make_pair((23*row + col)/32, (23*row + col)%32);
+  }
+  
+  float GetVbdTrayIndexIV(int tray_index, int row, int col, bool temperature_corrected = false) {
+    if (temperature_corrected) {
+      return this->IV_internal->at(tray_index)->IV_Vpeak_25C->at(23*row + col);
+    }return this->IV_internal->at(tray_index)->IV_Vpeak->at(23*row + col);
+  }
+  
+  float GetVbdTestIndexIV(int tray_index, int set, int cassette_index, bool temperature_corrected = false) {
+    if (temperature_corrected) {
+      return this->IV_internal->at(tray_index)->IV_Vpeak_25C->at(32*set + cassette_index);
+    }return this->IV_internal->at(tray_index)->IV_Vpeak->at(32*set + cassette_index);
+  }
+  
+  float GetVbdTrayIndexSPS(int tray_index, int row, int col, bool temperature_corrected = false) {
+    if (temperature_corrected) {
+      return this->SPS_internal->at(tray_index)->SPS_Vbd_25C->at(23*row + col);
+    }return this->SPS_internal->at(tray_index)->SPS_Vbd->at(23*row + col);
+  }
+  
+  float GetVbdTestIndexSPS(int tray_index, int set, int cassette_index, bool temperature_corrected = false) {
+    if (temperature_corrected) {
+      return this->SPS_internal->at(tray_index)->SPS_Vbd_25C->at(32*set + cassette_index);
+    }return this->SPS_internal->at(tray_index)->SPS_Vbd->at(32*set + cassette_index);
+  }
+  
+  bool HasSet(int tray_index, int set_index) {
+    return (this->IV_internal->at(tray_index)->IV_Vpeak->at(32*set_index) != -999);
+  }
+  
   
   // *---------------- SPS/IV Data Readers
   
