@@ -375,7 +375,9 @@ public:
       
       // Form input file for this tray
       char IV_file[75];
-      snprintf(IV_file, 75, "../data/%s-results/IV_result.txt", it->c_str());
+      if (this->has_subscript_results) snprintf(IV_file, 75, "../data/%s-results/IV_result.txt", it->c_str());
+      else                             snprintf(IV_file, 75, "../data/%s/IV_result.txt", it->c_str());
+      
       if (verbose_mode) std::cout << "Gathering IV data for tray " << t_grn << *it << t_def << "...";
       
       // *-- data arrays to append to data struct
@@ -512,7 +514,9 @@ public:
       
       // Form input file for this tray
       char SPS_file[75];
-      snprintf(SPS_file, 75, "../data/%s-results/SPS_result_onlynumbers.txt", it->c_str());
+      if (this->has_subscript_results) snprintf(SPS_file, 75, "../data/%s-results/SPS_result_onlynumbers.txt", it->c_str());
+      else                             snprintf(SPS_file, 75, "../data/%s/SPS_result_onlynumbers.txt", it->c_str());
+      
       if (verbose_mode) std::cout << "Gathering SPS data for tray " << t_grn << *it << t_def << "...";
       
       // *-- data arrays to append to data struct
