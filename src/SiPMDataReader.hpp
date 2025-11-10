@@ -88,6 +88,7 @@ private:
   
   // Flags for systematic analysis
   bool read_for_systematics; // TODO implement flags in reader
+  bool has_subscript_results; // production data ends in "-results", systematics often don't.
   
   // flags for printing and debugging
   bool verbose_mode;           // Print a reasonable amount of info about processes as they occur
@@ -99,7 +100,7 @@ private:
   // Read batch tray indices from text file
   // This specifies which trays are to be inspected in the current batch
   void GetBatchStrings() {
-    if (verbose_mode) std::cout << "Reading intput file " << t_blu << batch_data_file << t_def << " for Tray batch numbers...";
+    if (verbose_mode) std::cout << "Reading intput file " << t_blu << *batch_data_file << t_def << " for Tray batch numbers...";
     std::ifstream infile(batch_data_file->c_str());
     std::string cline;
     
@@ -159,6 +160,8 @@ private:
     }if (verbose_mode) std::cout << '}' << std::endl;
     
     if (!invalid_trays->empty()) {
+      
+      // If invalid trays found, report on which ones are invalid
       std::cout << t_red << "Warning " << t_def << ":: Trays {";
       for (std::vector<std::string>::iterator it = invalid_trays->begin(); it != invalid_trays->end(); ++it) {
         std::cout << t_red << *it << t_def;
@@ -166,11 +169,23 @@ private:
       } std::cout << "} do not exist or do not have the necessary files." << std::endl << std::endl;
       std::cout << "Note that each directory should be named [" << t_blu << "TRAY_INDEX" << t_def << "-results]," << std::endl;
       std::cout << "and should contain files {" << t_blu << "IV_result.txt" << t_def << ", ";
-      std::cout << t_blu << "SPS_result_onlynumbers.txt" << t_def << "}";
-//      std::cout << t_blu << "SPS_result.txt" << t_def << "}." << std::endl << std::endl;
+      std::cout << t_blu << "SPS_result_onlynumbers.txt" << t_def << "}." << std::endl;
+//      std::cout << t_blu << "SPS_result.txt" << t_def << "}." << std::endl << std::endl; // not necessary
+      
+      // Make a note about requiring "-results" or not depending on current flag
+      std::cout << "\nIf the above invalid trays are in the data directory, they may be missed due to name convention." << std::endl;
+      if (this->has_subscript_results) {
+        std::cout << "SiPMDataReader::has_subscript_results is currently " << t_grn << "true" << t_def << "." << std::endl;
+        std::cout << " This means data should be stored as ../data/{Tray identifier}-results/{text files}." << std::endl;
+        std::cout << "If this is not desired, disable the flag using SiPMDataReader::SetFlatTrayString()" << std::endl;
+      } else {
+        std::cout << "SiPMDataReader::has_subscript_results is currently " << t_red << "false" << t_def << "." << std::endl;
+        std::cout << " This means data should be stored as ../data/{Tray identifier}/{text files}." << std::endl;
+        std::cout << "If this is not desired, enable the flag by setting SiPMDataReader::SetDefTrayString()" << std::endl;
+      }
       
       if (valid_trays->empty()) {
-        std::cerr << "No valid trays. Terminating..." << std::endl;
+        std::cerr << t_red << "No valid trays. Terminating..." << t_def << std::endl;
         return;
       }
       
@@ -192,7 +207,8 @@ private:
   // Check that a given tray is valid (i.e. its directory exists and has the right files)
   bool CheckValidTray(std::string tray) {
     char dir[50];
-    snprintf(dir, 50, "../data/%s-results", tray.c_str());
+    if (this->has_subscript_results) snprintf(dir, 50, "../data/%s-results", tray.c_str());
+    else                             snprintf(dir, 50, "../data/%s", tray.c_str());
     
     // Files which each directory should have:
     const int num_subfiles = 2;
@@ -238,6 +254,7 @@ public:
   
   SiPMDataReader() {
     this->read_for_systematics = false;
+    this->has_subscript_results = true;
     
     this->verbose_mode = true;
     this->print_IV_all_SiPMs = false;
@@ -254,6 +271,7 @@ public:
   
   SiPMDataReader(const char* batch_file) {
     this->read_for_systematics = false;
+    this->has_subscript_results = true;
     
     this->verbose_mode = true;
     this->print_IV_all_SiPMs = false;
@@ -271,16 +289,18 @@ public:
   
   // *---------------- Setters/Getters
   
-  void                          GetDataDebrecen()  {GetBatchStrings();}
-  void                          GetDataORNL()      {return;} // TODO
-  std::vector<IV_data*>*        GetIV()            {return this->IV_internal;}
-  std::vector<SPS_data*>*       GetSPS()           {return this->SPS_internal;}
-  std::vector<std::string>*     GetTrayStrings()   {return this->tray_strings;}
+  void                          GetDataDebrecen()     {GetBatchStrings();}
+  void                          GetDataORNL()         {return;} // TODO
+  std::vector<IV_data*>*        GetIV()               {return this->IV_internal;}
+  std::vector<SPS_data*>*       GetSPS()              {return this->SPS_internal;}
+  std::vector<std::string>*     GetTrayStrings()      {return this->tray_strings;}
   
-  void                          SetSystematicMode(){this->read_for_systematics = true;} // should be run before running GetDataDebrecen
-  void                          SetVerbose(bool v) {this->verbose_mode = v;}
-  void                          SetPrintIV()       {this->print_IV_all_SiPMs = true;}
-  void                          SetPrintSPS()      {this->print_SPS_all_SiPMs = true;}
+  void                          SetSystematicMode()   {this->read_for_systematics = true;} // should be run before running GetDataDebrecen
+  void                          SetFlatTrayString()   {this->has_subscript_results = false;} // do not automatically require "-results" in tray strings
+  void                          SetDefTrayString()    {this->has_subscript_results = true;} // do require "-results" in tray strings (typical convention)
+  void                          SetVerbose(bool v)    {this->verbose_mode = v;}
+  void                          SetPrintIV()          {this->print_IV_all_SiPMs = true;}
+  void                          SetPrintSPS()         {this->print_SPS_all_SiPMs = true;}
 
   // *---------------- Dynamic/Interfacing Getters
   
@@ -289,6 +309,11 @@ public:
     this->IV_internal = new std::vector<struct IV_data*>();
     this->SPS_internal = new std::vector<struct SPS_data*>();
     
+    this->batch_data_file = new std::string(filename);
+    GetBatchStrings();
+  }
+  
+  void AppendFile(const char* filename) {
     this->batch_data_file = new std::string(filename);
     GetBatchStrings();
   }
