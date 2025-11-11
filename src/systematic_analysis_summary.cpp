@@ -591,7 +591,7 @@ void makeReproducabilityHist(std::string base_tray_id) {
 // This method assumes that the contiguous string "tempscan"
 // is in the run notes/batch strings and only includes such data.
 void makeTemperatureScan() {
-  
+  bool temp_debug = false;
   
   // Find strings with tempscan
   std::vector<int> tempscan_tray_indices;
@@ -637,7 +637,7 @@ void makeTemperatureScan() {
   
   // Gather relevant data from gReader
   for (int i_temp = 0; i_temp < tempscan_tray_indices.size(); ++i_temp) {
-    std::cout << "current tray :: " << gReader->GetIV()->at(tempscan_tray_indices[i_temp])->tray_note << std::endl;
+    if (temp_debug) std::cout << "current tray :: " << gReader->GetIV()->at(tempscan_tray_indices[i_temp])->tray_note << std::endl;
     
     // access relevant data from reader
     std::vector<int>* current_sipm_row = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->row;
@@ -655,7 +655,7 @@ void makeTemperatureScan() {
     
     for (int i_sipm = 0; i_sipm < current_Vbr_IV->size(); ++i_sipm) {
       if (current_Vbr_IV->at(i_sipm) == -999) continue;
-      std::cout << "IV V_br for SiPM " << i_sipm << " = " << current_Vbr_IV->at(i_sipm) << std::endl;
+      if (temp_debug) std::cout << "IV V_br for SiPM " << i_sipm << " = " << current_Vbr_IV->at(i_sipm) << std::endl;
       
       // Append data so that each vector is one SiPM--for converting to TGraph later
       if (i_temp == 0) {
@@ -681,7 +681,7 @@ void makeTemperatureScan() {
         temp_IV_err.push_back(std::vector<float>());
         temp_SPS_err.push_back(std::vector<float>());
         
-        std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
+        if (temp_debug) std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
       }
       
       // Temperature scan voltage data
@@ -774,63 +774,61 @@ void makeTemperatureScan() {
     
     
     // *-- Perform fitting to linear map and estimate flatness from error on the slope
-    // Fitting acting very weird--look into this more.
-    //    float slopelim[2] = {-0.2, 0.2};
-    //    char fitoption[5] = "";
-    //    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-    //                                     "[0] + [1]*(x-42.4)", 42.2, 42.6);
-    //    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
-    //    linfit_IV[i_sipm]->SetLineStyle(7);
-    ////    linfit_IV[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_IV[i_sipm]));
-    //    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-    //    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0); // seed null hypothesis as a guess
-    //    sipm_tempscan_graph_IV[i_sipm]->Fit(linfit_IV[ntotal_sipm], fitoption);
-    //
-    //    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-    //                                   "[0] + [1]*(x-42.4)", 42.2, 42.6);
-    //    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
-    //    linfit_IV_25[i_sipm]->SetLineStyle(5);
-    ////    linfit_IV_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_IV[i_sipm]));
-    //    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-    //    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
-    //    sipm_tempscan_graph_IV_25[i_sipm]->Fit(linfit_IV_25[ntotal_sipm], fitoption);
-    //
-    //    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-    //                                 "[0] + [1]*(x-42.4)", 42.2, 42.6);
-    //    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
-    //    linfit_SPS[i_sipm]->SetLineStyle(7);
-    ////    linfit_SPS[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_SPS[i_sipm]));
-    //    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-    //    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
-    //    sipm_tempscan_graph_SPS[i_sipm]->Fit(linfit_SPS[ntotal_sipm], fitoption);
-    //
-    //    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-    //                                    "[0] + [1]*(x-42.4)", 42.2, 42.6);
-    //    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
-    //    linfit_SPS_25[i_sipm]->SetLineStyle(5);
-    ////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
-    ////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
-    //    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-    //    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
-    //    sipm_tempscan_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[ntotal_sipm], fitoption);
+    float rangelim[2] = {0, 50};
+    float slopelim[2] = {-0.07, 0.07};
+    // Usefil ptions for fitting:
+    //    Q - Quiet
+    //    W - Ignore errors
+    //    F - Use TMinuit for poly
+    //    R - use rangelim only for fitting
+    //    EX0 - ignore x axis errors
+    char fitoption[5] = "Q";
+    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                     "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    linfit_IV[i_sipm]->SetLineStyle(7);
+    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0.034); // From Debrecen temp correction coefficient
+    sipm_tempscan_graph_IV[i_sipm]->Fit(linfit_IV[i_sipm], fitoption);
+
+    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                   "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+    linfit_IV_25[i_sipm]->SetLineStyle(5);
+    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_tempscan_graph_IV_25[i_sipm]->Fit(linfit_IV_25[i_sipm], fitoption);
+
+    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                 "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+    linfit_SPS[i_sipm]->SetLineStyle(7);
+    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0.034); // From Debrecen temp correction coefficient
+    sipm_tempscan_graph_SPS[i_sipm]->Fit(linfit_SPS[i_sipm], fitoption);
+
+    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                    "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+    linfit_SPS_25[i_sipm]->SetLineStyle(5);
+    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_tempscan_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[i_sipm], fitoption);
     
     // Prepare the canvas
     gCanvas_solo->cd();
     gCanvas_solo->Clear();
     gPad->SetTicks(1,1);
     gPad->SetRightMargin(0.015);
+    gPad->SetBottomMargin(0.08);
     gPad->SetLeftMargin(0.09);
     
     // Plot the graphs--base layer
     sipm_tempscan_multigraph[i_sipm]->SetTitle(";Average Temperature During Test [#circC];Measured V_{br} [V]");
     sipm_tempscan_multigraph[i_sipm]->GetYaxis()->SetRangeUser(voltplot_limits[0],voltplot_limits[1]);
     sipm_tempscan_multigraph[i_sipm]->GetYaxis()->SetTitleOffset(1.2);
-    sipm_tempscan_multigraph[i_sipm]->GetXaxis()->SetTitleOffset(1.2);
+    sipm_tempscan_multigraph[i_sipm]->GetXaxis()->SetTitleOffset(1.0);
     sipm_tempscan_multigraph[i_sipm]->Draw("a");
-    //    linfit_IV[i_sipm]->Draw("same");
-    //    linfit_IV_25[i_sipm]->Draw("same");
-    //    linfit_SPS[i_sipm]->Draw("same");
-    //    linfit_SPS_25[i_sipm]->Draw("same");
     
     // Add reference lines
     TLine* typ_line = new TLine();
@@ -838,14 +836,46 @@ void makeTemperatureScan() {
     typ_line->SetLineColor(kGray+1);
     typ_line->DrawLine(42.4, voltplot_limits[0], 42.4, voltplot_limits[1]);
     
-    // Add legends
-    TLegend* leg_data = new TLegend(0.15, 0.39, 0.45, 0.61);
+    // Add legend--data
+    TLegend* leg_data = new TLegend(0.15, 0.35, 0.45, 0.57);
     leg_data->SetLineWidth(0);
     leg_data->AddEntry(sipm_tempscan_graph_IV[i_sipm], "IV (ambient)", data_plot_option);
     leg_data->AddEntry(sipm_tempscan_graph_IV_25[i_sipm], "IV (25#circC)", data_plot_option);
     leg_data->AddEntry(sipm_tempscan_graph_SPS[i_sipm], "SPS (ambient)", data_plot_option);
     leg_data->AddEntry(sipm_tempscan_graph_SPS_25[i_sipm], "SPS (25#circC)", data_plot_option);
     leg_data->Draw();
+    
+    // Add legend--fitting
+    TLegend* leg_fit = new TLegend(0.55, 0.39, 0.95, 0.58);
+    leg_fit->SetLineWidth(0);
+    leg_fit->SetTextSize(0.035);
+    leg_fit->AddEntry(linfit_IV[i_sipm], Form("%.1f #pm %.1f",
+                                              1000*linfit_IV[i_sipm]->GetParameter(1),
+                                              1000*linfit_IV[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_IV_25[i_sipm], Form("%.1f #pm %.1f",
+                                                 1000*linfit_IV_25[i_sipm]->GetParameter(1),
+                                                 1000*linfit_IV_25[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_SPS[i_sipm], Form("%.1f #pm %.1f",
+                                               1000*linfit_SPS[i_sipm]->GetParameter(1),
+                                               1000*linfit_SPS[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_SPS_25[i_sipm], Form("%.1f #pm %.1f",
+                                                  1000*linfit_SPS_25[i_sipm]->GetParameter(1),
+                                                  1000*linfit_SPS_25[i_sipm]->GetParError(1)), "l");
+    leg_fit->Draw();
+    
+    // Draw the chi2 separately to align them horizontally
+    TLatex* tex_chi2[4];
+    double base = 0.545;
+    double diff = 0.047;
+    tex_chi2[0] = drawText(Form("#chi^{2} = %.3f",linfit_IV[i_sipm]->GetChisquare()),       0.775, base - 0*diff, false, kBlack, 0.035);
+    tex_chi2[1] = drawText(Form("#chi^{2} = %.3f",linfit_IV_25[i_sipm]->GetChisquare()),    0.775, base - 1*diff, false, kBlack, 0.035);
+    tex_chi2[2] = drawText(Form("#chi^{2} = %.3f",linfit_SPS[i_sipm]->GetChisquare()),      0.775, base - 2*diff, false, kBlack, 0.035);
+    tex_chi2[3] = drawText(Form("#chi^{2} = %.3f",linfit_SPS_25[i_sipm]->GetChisquare()),   0.775, base - 3*diff, false, kBlack, 0.035);
+    
+    // Draw some text about the fitting
+    TLatex* tex_fit[3];
+    tex_fit[0] = drawText("Fit Slope [mV/#circC]", 0.55, 0.6, false, kBlack, 0.04);
+    tex_fit[2] = drawText("Hamamatsu Nominal: #bf{34 mV/#circC}", 0.55, 0.35, false, kBlack, 0.035);
     
     // Draw some informative text about the setup
     TLatex* top_tex[6];
@@ -856,9 +886,11 @@ void makeTemperatureScan() {
                                gReader->GetIV()->at(tempscan_tray_indices[0])->tray_note.substr(0,11).c_str(),
                                sipm_row[i_sipm],sipm_col[i_sipm]),                     1-gPad->GetRightMargin(), 0.91, true, kBlack, 0.035);
     top_tex[4] = drawText("Test Stand Systematics: Temperature Scan",                  gPad->GetLeftMargin() + 0.05, 0.83, false, kBlack, 0.04);
+    top_tex[5] = drawText(Form("%i Total Tests During Cooldown",ntotal_scan),          gPad->GetLeftMargin() + 0.05, 0.78, false, kBlack, 0.04);
     
-    // Redraw the graph::assure plots sit on top of all other features
-    //    sipm_tempscan_multigraph[i_sipm]->Draw("a same");
+    // Might also be interesting to look at:
+    // - Residuals against fit for closer look at potential nonlinearity
+    // - Dist of fit coefficients + error relative to Hamamatsu nominal. Do we see consistent IV/SPS behavior?
     
     gCanvas_solo->SaveAs(Form("../plots/systematic_plots/temperature/tempscan_%i_%i_Vbr.pdf",
                               sipm_row[i_sipm],sipm_col[i_sipm]));
@@ -969,7 +1001,7 @@ void makeOperatingVoltageScan() {
   
   
   // Make TGraphs of data over the V_op scan
-  char data_plot_option[5] = "pl 2";
+  char data_plot_option[5] = "p 2";
   const int ntotal_scan = Vbr_IV[2].size();
   const int ntotal_sipm = Vbr_IV.size();
   std::cout << "ntotal_scan = " << ntotal_scan << std::endl;
@@ -1037,45 +1069,46 @@ void makeOperatingVoltageScan() {
     
     
     // *-- Perform fitting to linear map and estimate flatness from error on the slope
-    // Fitting acting very weird--look into this more.
-//    float slopelim[2] = {-0.2, 0.2};
-//    char fitoption[5] = "";
-//    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-//                                     "[0] + [1]*(x-42.4)", 42.2, 42.6);
-//    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
-//    linfit_IV[i_sipm]->SetLineStyle(7);
-////    linfit_IV[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_IV[i_sipm]));
-//    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-//    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0); // seed null hypothesis as a guess
-//    sipm_vopscan_graph_IV[i_sipm]->Fit(linfit_IV[ntotal_sipm], fitoption);
-//    
-//    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-//                                   "[0] + [1]*(x-42.4)", 42.2, 42.6);
-//    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
-//    linfit_IV_25[i_sipm]->SetLineStyle(5);
-////    linfit_IV_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_IV[i_sipm]));
-//    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-//    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
-//    sipm_vopscan_graph_IV_25[i_sipm]->Fit(linfit_IV_25[ntotal_sipm], fitoption);
-//    
-//    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-//                                 "[0] + [1]*(x-42.4)", 42.2, 42.6);
-//    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
-//    linfit_SPS[i_sipm]->SetLineStyle(7);
-////    linfit_SPS[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_SPS[i_sipm]));
-//    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-//    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
-//    sipm_vopscan_graph_SPS[i_sipm]->Fit(linfit_SPS[ntotal_sipm], fitoption);
-//    
-//    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
-//                                    "[0] + [1]*(x-42.4)", 42.2, 42.6);
-//    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
-//    linfit_SPS_25[i_sipm]->SetLineStyle(5);
-////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
-////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
-//    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
-//    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
-//    sipm_vopscan_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[ntotal_sipm], fitoption);
+    float rangelim[2] = {0, 50};
+    float slopelim[2] = {-0.5, 0.5};
+    // Usefil ptions for fitting:
+    //    Q - Quiet
+    //    W - Ignore errors
+    //    F - Use TMinuit for poly
+    //    R - use rangelim only for fitting
+    //    EX0 - ignore x axis errors
+    char fitoption[10] = "EX0 Q";
+    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                "[0] + [1]*(x-42.4)", rangelim[0], rangelim[1]);
+    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    linfit_IV[i_sipm]->SetLineStyle(7);
+    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0.021); // seed null hypothesis as a guess
+    sipm_vopscan_graph_IV[i_sipm]->Fit(linfit_IV[i_sipm], fitoption);
+    
+    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                   "[0] + [1]*(x-42.4)", rangelim[0], rangelim[1]);
+    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+    linfit_IV_25[i_sipm]->SetLineStyle(5);
+    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_vopscan_graph_IV_25[i_sipm]->Fit(linfit_IV_25[i_sipm], fitoption);
+    
+    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                 "[0] + [1]*(x-42.4)", rangelim[0], rangelim[1]);
+    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+    linfit_SPS[i_sipm]->SetLineStyle(7);
+    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_SPS[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_vopscan_graph_SPS[i_sipm]->Fit(linfit_SPS[i_sipm], fitoption);
+    
+    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                    "[0] + [1]*(x-42.4)", rangelim[0], rangelim[1]);
+    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+    linfit_SPS_25[i_sipm]->SetLineStyle(5);
+    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_vopscan_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[i_sipm], fitoption);
     
     // Prepare the canvas
     gCanvas_solo->cd();
@@ -1090,10 +1123,6 @@ void makeOperatingVoltageScan() {
     sipm_vopscan_multigraph[i_sipm]->GetYaxis()->SetTitleOffset(1.2);
     sipm_vopscan_multigraph[i_sipm]->GetXaxis()->SetTitleOffset(1.2);
     sipm_vopscan_multigraph[i_sipm]->Draw("a");
-//    linfit_IV[i_sipm]->Draw("same");
-//    linfit_IV_25[i_sipm]->Draw("same");
-//    linfit_SPS[i_sipm]->Draw("same");
-//    linfit_SPS_25[i_sipm]->Draw("same");
     
     // Add reference lines
     TLine* typ_line = new TLine();
@@ -1109,6 +1138,38 @@ void makeOperatingVoltageScan() {
     leg_data->AddEntry(sipm_vopscan_graph_SPS[i_sipm], "SPS (ambient)", data_plot_option);
     leg_data->AddEntry(sipm_vopscan_graph_SPS_25[i_sipm], "SPS (25#circC)", data_plot_option);
     leg_data->Draw();
+    
+    // Add legend--fitting
+    TLegend* leg_fit = new TLegend(0.58, 0.39, 0.95, 0.58);
+    leg_fit->SetLineWidth(0);
+    leg_fit->SetTextSize(0.035);
+    leg_fit->AddEntry(linfit_IV[i_sipm], Form("%.1f #pm %.1f",
+                                              1000*linfit_IV[i_sipm]->GetParameter(1),
+                                              1000*linfit_IV[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_IV_25[i_sipm], Form("%.1f #pm %.1f",
+                                                 1000*linfit_IV_25[i_sipm]->GetParameter(1),
+                                                 1000*linfit_IV_25[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_SPS[i_sipm], Form("%.1f #pm %.1f",
+                                               1000*linfit_SPS[i_sipm]->GetParameter(1),
+                                               1000*linfit_SPS[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_SPS_25[i_sipm], Form("%.1f #pm %.1f",
+                                                  1000*linfit_SPS_25[i_sipm]->GetParameter(1),
+                                                  1000*linfit_SPS_25[i_sipm]->GetParError(1)), "l");
+    leg_fit->Draw();
+    
+    // Draw the chi2 separately to align them horizontally
+    TLatex* tex_chi2[4];
+    double base = 0.545;
+    double diff = 0.047;
+    tex_chi2[0] = drawText(Form("#chi^{2} = %.3f",linfit_IV[i_sipm]->GetChisquare()),       0.83, base - 0*diff, false, kBlack, 0.035);
+    tex_chi2[1] = drawText(Form("#chi^{2} = %.3f",linfit_IV_25[i_sipm]->GetChisquare()),    0.83, base - 1*diff, false, kBlack, 0.035);
+    tex_chi2[2] = drawText(Form("#chi^{2} = %.3f",linfit_SPS[i_sipm]->GetChisquare()),      0.83, base - 2*diff, false, kBlack, 0.035);
+    tex_chi2[3] = drawText(Form("#chi^{2} = %.3f",linfit_SPS_25[i_sipm]->GetChisquare()),   0.83, base - 3*diff, false, kBlack, 0.035);
+    
+    // Draw some text about the fitting
+    TLatex* tex_fit[3];
+    tex_fit[0] = drawText("Fit Slope [mV/V]", 0.58, 0.6, false, kBlack, 0.04);
+//    tex_fit[2] = drawText("Hamamatsu Nominal: #bf{34 mV/#circC}", 0.55, 0.35, false, kBlack, 0.035);
     
     // Draw some informative text about the setup
     TLatex* top_tex[6];
