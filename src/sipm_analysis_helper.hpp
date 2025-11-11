@@ -18,8 +18,11 @@
 
 //========================================================================== Forward declarations
 
-// Small Analysis Subroutines: Counting/Tallying
+// Small/general utils
 bool                          checkReader();
+float                         getAvgFromVector(std::vector<float>& vec);
+float                         getAvgFromVectorPointer(std::vector<float>* vec);
+
 
 // Small Analysis Subroutines: Counting/Tallying
 int                           countSiPMsAllTrays();
@@ -46,6 +49,20 @@ bool checkReader() {
     std::cerr << t_red << "Error in <sipm_analysis_helper>: gReader is undefined! Define a SiPMDataReader to proceed." << t_def << std::endl;
     return false;
   }return true;
+}
+
+float getAvgFromVector(std::vector<float>& vec) {
+  float avg = 0;
+  for (std::vector<float>::iterator it = vec.begin(); it != vec.end(); ++it) {
+    avg += *it;
+  }return avg / vec.size();
+}
+
+float getAvgFromVectorPointer(std::vector<float>* vec) {
+  float avg = 0;
+  for (std::vector<float>::iterator it = vec->begin(); it != vec->end(); ++it) {
+    avg += *it;
+  }return avg / vec->size();
 }
 
 

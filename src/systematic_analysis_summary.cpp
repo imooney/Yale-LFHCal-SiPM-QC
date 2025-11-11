@@ -128,6 +128,16 @@ void systematic_analysis_summary() {
   
   makeOperatingVoltageScan();
   
+  // *-- Analysis tasks: Temperature
+  reader->SetFlatTrayString(); // Don't require parent directories end in -results
+  reader->ReadFile("../batch_data_tempscan.txt");
+  reader->ReadDataIV();
+  reader->ReadDataSPS();
+  
+  makeTemperatureScan();
+  
+  
+  
 }// End of systematic_analysis_summary::main
 
 //========================================================================== Reproducibility tests
@@ -583,6 +593,277 @@ void makeReproducabilityHist(std::string base_tray_id) {
 void makeTemperatureScan() {
   
   
+  // Find strings with tempscan
+  std::vector<int> tempscan_tray_indices;
+  std::vector<std::string> tempscan_tray_strings;
+  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
+    if (gReader->GetTrayStrings()->at(i_tray).find("tempscan") != -1) {
+      std::string swapstring = gReader->GetTrayStrings()->at(i_tray);
+      tempscan_tray_indices.push_back(i_tray);
+      tempscan_tray_strings.push_back(swapstring);
+      
+      std::cout << "Good Temperature scan tray found at index " << t_blu << i_tray << t_def;
+      std::cout << " (" << t_grn << gReader->GetTrayStrings()->at(i_tray) << t_def << ")" << std::endl;
+    }
+  }
+  
+  // Check that vopscan values were found, return if not
+  if (tempscan_tray_indices.size() == 0) {
+    std::cout << "Warning in systematic_analysis_summary::makeTemperatureScan: No trays with \"tempscan\" found in dataset." << std::endl;
+    std::cout << "Check input batch file to verify tempscan data are available." << std::endl;
+    return;
+  }
+  
+  // Initialize data arrays
+  
+  // SiPM identifer data
+  std::vector<int> sipm_row;
+  std::vector<int> sipm_col;
+  
+  // Data
+  std::vector<std::vector<float> > temp_IV;
+  std::vector<std::vector<float> > Vbr_IV;
+  std::vector<std::vector<float> > Vbr_25_IV;
+  std::vector<std::vector<float> > temp_SPS;
+  std::vector<std::vector<float> > Vbr_SPS;
+  std::vector<std::vector<float> > Vbr_25_SPS;
+  // Error (folded in from other systematics)
+  std::vector<std::vector<float> > temp_IV_err;
+  std::vector<std::vector<float> > Vbr_IV_err;
+  std::vector<std::vector<float> > Vbr_25_IV_err;
+  std::vector<std::vector<float> > temp_SPS_err;
+  std::vector<std::vector<float> > Vbr_SPS_err;
+  std::vector<std::vector<float> > Vbr_25_SPS_err;
+  
+  // Gather relevant data from gReader
+  for (int i_temp = 0; i_temp < tempscan_tray_indices.size(); ++i_temp) {
+    std::cout << "current tray :: " << gReader->GetIV()->at(tempscan_tray_indices[i_temp])->tray_note << std::endl;
+    
+    // access relevant data from reader
+    std::vector<int>* current_sipm_row = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->row;
+    std::vector<int>* current_sipm_col = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->col;
+    
+    std::vector<float>* current_Vbr_IV = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->IV_Vpeak;
+    std::vector<float>* current_Vbr_25_IV = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->IV_Vpeak_25C;
+    std::vector<float>* current_Vbr_SPS = gReader->GetSPS()->at(tempscan_tray_indices[i_temp])->SPS_Vbd;
+    std::vector<float>* current_Vbr_25_SPS = gReader->GetSPS()->at(tempscan_tray_indices[i_temp])->SPS_Vbd_25C;
+    
+    std::vector<float>* current_temp_IV = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->avg_temp;
+    std::vector<float>* current_temp_SPS = gReader->GetSPS()->at(tempscan_tray_indices[i_temp])->avg_temp;
+    std::vector<float>* current_temp_IV_err = gReader->GetIV()->at(tempscan_tray_indices[i_temp])->stdev_temp;
+    std::vector<float>* current_temp_SPS_err = gReader->GetSPS()->at(tempscan_tray_indices[i_temp])->stdev_temp;
+    
+    for (int i_sipm = 0; i_sipm < current_Vbr_IV->size(); ++i_sipm) {
+      if (current_Vbr_IV->at(i_sipm) == -999) continue;
+      std::cout << "IV V_br for SiPM " << i_sipm << " = " << current_Vbr_IV->at(i_sipm) << std::endl;
+      
+      // Append data so that each vector is one SiPM--for converting to TGraph later
+      if (i_temp == 0) {
+        // SiPM indexing
+        sipm_row.push_back(current_sipm_row->at(i_sipm));
+        sipm_col.push_back(current_sipm_col->at(i_sipm));
+        
+        // Temperature scan voltage data
+        Vbr_IV.push_back(std::vector<float>());
+        Vbr_25_IV.push_back(std::vector<float>());
+        Vbr_SPS.push_back(std::vector<float>());
+        Vbr_25_SPS.push_back(std::vector<float>());
+        
+        // Temperature scan voltage error -- currently just avg stdev systematic from reproducibility
+        Vbr_IV_err.push_back(std::vector<float>());
+        Vbr_25_IV_err.push_back(std::vector<float>());
+        Vbr_SPS_err.push_back(std::vector<float>());
+        Vbr_25_SPS_err.push_back(std::vector<float>());
+        
+        // Measured temperature and error
+        temp_IV.push_back(std::vector<float>());
+        temp_SPS.push_back(std::vector<float>());
+        temp_IV_err.push_back(std::vector<float>());
+        temp_SPS_err.push_back(std::vector<float>());
+        
+        std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
+      }
+      
+      // Temperature scan voltage data
+      Vbr_IV[i_sipm].push_back(current_Vbr_IV->at(i_sipm));
+      Vbr_25_IV[i_sipm].push_back(current_Vbr_25_IV->at(i_sipm));
+      Vbr_SPS[i_sipm].push_back(current_Vbr_SPS->at(i_sipm));
+      Vbr_25_SPS[i_sipm].push_back(current_Vbr_25_SPS->at(i_sipm));
+      
+      // Temperature scan voltage error -- currently just avg stdev systematic from reproducibility
+      Vbr_IV_err[i_sipm].push_back(gRepError_IV[0]);     // IV - not temp corrected
+      Vbr_25_IV_err[i_sipm].push_back(gRepError_IV[1]);  // IV - temp corrected
+      Vbr_SPS_err[i_sipm].push_back(gRepError_SPS[0]);   // SPS - not temp corrected
+      Vbr_25_SPS_err[i_sipm].push_back(gRepError_SPS[1]); // SPS - temp corrected
+      
+      // Measured temperature and error
+      temp_IV[i_sipm].push_back(current_temp_IV->at(i_sipm));
+      temp_SPS[i_sipm].push_back(current_temp_SPS->at(i_sipm));
+      temp_IV_err[i_sipm].push_back(current_temp_IV_err->at(i_sipm));
+      temp_SPS_err[i_sipm].push_back(current_temp_SPS_err->at(i_sipm));
+    }// End of SiPM loop
+  }// End of Temperature scan file loop
+  
+  
+  // Make TGraphs of data over the V_op scan
+  char data_plot_option[5] = "p 2";
+  const int ntotal_scan = Vbr_IV[2].size();
+  const int ntotal_sipm = Vbr_IV.size();
+  std::cout << "ntotal_scan = " << ntotal_scan << std::endl;
+  std::cout << "ntotal_sipm = " << ntotal_sipm << std::endl;
+  
+  // Data graphs
+  TGraphErrors* sipm_tempscan_graph_IV[ntotal_sipm];
+  TGraphErrors* sipm_tempscan_graph_IV_25[ntotal_sipm];
+  TGraphErrors* sipm_tempscan_graph_SPS[ntotal_sipm];
+  TGraphErrors* sipm_tempscan_graph_SPS_25[ntotal_sipm];
+  TMultiGraph*  sipm_tempscan_multigraph[ntotal_sipm];
+  
+  // Fit
+  TF1* linfit_IV[ntotal_sipm];
+  TF1* linfit_IV_25[ntotal_sipm];
+  TF1* linfit_SPS[ntotal_sipm];
+  TF1* linfit_SPS_25[ntotal_sipm];
+  
+  // Plot data and store plots
+  for (int i_sipm = 0; i_sipm < ntotal_sipm; ++i_sipm) {
+    // *-- Prepare the TGraph objects
+    sipm_tempscan_multigraph[i_sipm] = new TMultiGraph();
+    
+    sipm_tempscan_graph_IV[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                     temp_IV[i_sipm].data(), Vbr_IV[i_sipm].data(),
+                                                     temp_IV_err[i_sipm].data(), Vbr_IV_err[i_sipm].data());
+    sipm_tempscan_graph_IV[i_sipm]->SetFillColorAlpha(plot_colors[0], 0.5);
+    sipm_tempscan_graph_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    sipm_tempscan_graph_IV[i_sipm]->SetLineWidth(2);
+    sipm_tempscan_graph_IV[i_sipm]->SetMarkerColor(plot_colors[0]);
+    sipm_tempscan_graph_IV[i_sipm]->SetMarkerStyle(53);
+    sipm_tempscan_graph_IV[i_sipm]->SetMarkerSize(1.7);
+    sipm_tempscan_multigraph[i_sipm]->Add(sipm_tempscan_graph_IV[i_sipm], data_plot_option);
+    
+    sipm_tempscan_graph_IV_25[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                        temp_IV[i_sipm].data(), Vbr_25_IV[i_sipm].data(),
+                                                        temp_IV_err[i_sipm].data(), Vbr_25_IV_err[i_sipm].data());
+    sipm_tempscan_graph_IV_25[i_sipm]->SetFillColorAlpha(plot_colors_alt[0], 0.5);
+    sipm_tempscan_graph_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+    sipm_tempscan_graph_IV_25[i_sipm]->SetMarkerColor(plot_colors_alt[0]);
+    sipm_tempscan_graph_IV_25[i_sipm]->SetMarkerStyle(20);
+    sipm_tempscan_graph_IV_25[i_sipm]->SetMarkerSize(1.7);
+    sipm_tempscan_multigraph[i_sipm]->Add(sipm_tempscan_graph_IV_25[i_sipm], data_plot_option);
+    
+    sipm_tempscan_graph_SPS[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                      temp_SPS[i_sipm].data(), Vbr_SPS[i_sipm].data(),
+                                                      temp_SPS_err[i_sipm].data(), Vbr_SPS_err[i_sipm].data());
+    sipm_tempscan_graph_SPS[i_sipm]->SetFillColorAlpha(plot_colors[1], 0.5);
+    sipm_tempscan_graph_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+    sipm_tempscan_graph_SPS[i_sipm]->SetMarkerColor(plot_colors[1]);
+    sipm_tempscan_graph_SPS[i_sipm]->SetMarkerStyle(54);
+    sipm_tempscan_graph_SPS[i_sipm]->SetMarkerSize(1.7);
+    sipm_tempscan_multigraph[i_sipm]->Add(sipm_tempscan_graph_SPS[i_sipm], data_plot_option);
+    
+    sipm_tempscan_graph_SPS_25[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                         temp_SPS[i_sipm].data(), Vbr_25_SPS[i_sipm].data(),
+                                                         temp_SPS_err[i_sipm].data(), Vbr_25_SPS_err[i_sipm].data());
+    sipm_tempscan_graph_SPS_25[i_sipm]->SetFillColorAlpha(plot_colors_alt[1], 0.5);
+    sipm_tempscan_graph_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+    sipm_tempscan_graph_SPS_25[i_sipm]->SetMarkerColor(plot_colors_alt[1]);
+    sipm_tempscan_graph_SPS_25[i_sipm]->SetMarkerStyle(21);
+    sipm_tempscan_graph_SPS_25[i_sipm]->SetMarkerSize(1.7);
+    sipm_tempscan_multigraph[i_sipm]->Add(sipm_tempscan_graph_SPS_25[i_sipm], data_plot_option);
+    
+    
+    
+    // *-- Perform fitting to linear map and estimate flatness from error on the slope
+    // Fitting acting very weird--look into this more.
+    //    float slopelim[2] = {-0.2, 0.2};
+    //    char fitoption[5] = "";
+    //    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+    //                                     "[0] + [1]*(x-42.4)", 42.2, 42.6);
+    //    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    //    linfit_IV[i_sipm]->SetLineStyle(7);
+    ////    linfit_IV[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_IV[i_sipm]));
+    //    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    //    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    //    sipm_tempscan_graph_IV[i_sipm]->Fit(linfit_IV[ntotal_sipm], fitoption);
+    //
+    //    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+    //                                   "[0] + [1]*(x-42.4)", 42.2, 42.6);
+    //    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+    //    linfit_IV_25[i_sipm]->SetLineStyle(5);
+    ////    linfit_IV_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_IV[i_sipm]));
+    //    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    //    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    //    sipm_tempscan_graph_IV_25[i_sipm]->Fit(linfit_IV_25[ntotal_sipm], fitoption);
+    //
+    //    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+    //                                 "[0] + [1]*(x-42.4)", 42.2, 42.6);
+    //    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+    //    linfit_SPS[i_sipm]->SetLineStyle(7);
+    ////    linfit_SPS[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_SPS[i_sipm]));
+    //    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    //    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    //    sipm_tempscan_graph_SPS[i_sipm]->Fit(linfit_SPS[ntotal_sipm], fitoption);
+    //
+    //    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+    //                                    "[0] + [1]*(x-42.4)", 42.2, 42.6);
+    //    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+    //    linfit_SPS_25[i_sipm]->SetLineStyle(5);
+    ////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
+    ////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
+    //    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    //    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
+    //    sipm_tempscan_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[ntotal_sipm], fitoption);
+    
+    // Prepare the canvas
+    gCanvas_solo->cd();
+    gCanvas_solo->Clear();
+    gPad->SetTicks(1,1);
+    gPad->SetRightMargin(0.015);
+    gPad->SetLeftMargin(0.09);
+    
+    // Plot the graphs--base layer
+    sipm_tempscan_multigraph[i_sipm]->SetTitle(";Average Temperature During Test [#circC];Measured V_{br} [V]");
+    sipm_tempscan_multigraph[i_sipm]->GetYaxis()->SetRangeUser(voltplot_limits[0],voltplot_limits[1]);
+    sipm_tempscan_multigraph[i_sipm]->GetYaxis()->SetTitleOffset(1.2);
+    sipm_tempscan_multigraph[i_sipm]->GetXaxis()->SetTitleOffset(1.2);
+    sipm_tempscan_multigraph[i_sipm]->Draw("a");
+    //    linfit_IV[i_sipm]->Draw("same");
+    //    linfit_IV_25[i_sipm]->Draw("same");
+    //    linfit_SPS[i_sipm]->Draw("same");
+    //    linfit_SPS_25[i_sipm]->Draw("same");
+    
+    // Add reference lines
+    TLine* typ_line = new TLine();
+    typ_line->SetLineStyle(8);
+    typ_line->SetLineColor(kGray+1);
+    typ_line->DrawLine(42.4, voltplot_limits[0], 42.4, voltplot_limits[1]);
+    
+    // Add legends
+    TLegend* leg_data = new TLegend(0.15, 0.39, 0.45, 0.61);
+    leg_data->SetLineWidth(0);
+    leg_data->AddEntry(sipm_tempscan_graph_IV[i_sipm], "IV (ambient)", data_plot_option);
+    leg_data->AddEntry(sipm_tempscan_graph_IV_25[i_sipm], "IV (25#circC)", data_plot_option);
+    leg_data->AddEntry(sipm_tempscan_graph_SPS[i_sipm], "SPS (ambient)", data_plot_option);
+    leg_data->AddEntry(sipm_tempscan_graph_SPS_25[i_sipm], "SPS (25#circC)", data_plot_option);
+    leg_data->Draw();
+    
+    // Draw some informative text about the setup
+    TLatex* top_tex[6];
+    top_tex[0] = drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",                 gPad->GetLeftMargin(), 0.91, false, kBlack, 0.04);
+    top_tex[1] = drawText("#bf{ePIC} Test Stand",                                      gPad->GetLeftMargin(), 0.955, false, kBlack, 0.045);
+    top_tex[2] = drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),              1-gPad->GetRightMargin(), 0.95, true, kBlack, 0.045);
+    top_tex[3] = drawText(Form("Tray %s SiPM (%i,%i)",
+                               gReader->GetIV()->at(tempscan_tray_indices[0])->tray_note.substr(0,11).c_str(),
+                               sipm_row[i_sipm],sipm_col[i_sipm]),                     1-gPad->GetRightMargin(), 0.91, true, kBlack, 0.035);
+    top_tex[4] = drawText("Test Stand Systematics: Temperature Scan",                  gPad->GetLeftMargin() + 0.05, 0.83, false, kBlack, 0.04);
+    
+    // Redraw the graph::assure plots sit on top of all other features
+    //    sipm_tempscan_multigraph[i_sipm]->Draw("a same");
+    
+    gCanvas_solo->SaveAs(Form("../plots/systematic_plots/temperature/tempscan_%i_%i_Vbr.pdf",
+                              sipm_row[i_sipm],sipm_col[i_sipm]));
+  }// End of SiPM plot construction loop
+  return;
   
   
 }// End of systematic_analysis_summary::makeTemperatureScan
@@ -624,19 +905,23 @@ void makeOperatingVoltageScan() {
   // Gather relevant data from gReader
   std::vector<int> sipm_row;
   std::vector<int> sipm_col;
+  
   // Data
   std::vector<std::vector<float> > Vbr_IV;
   std::vector<std::vector<float> > Vbr_25_IV;
   std::vector<std::vector<float> > Vbr_SPS;
   std::vector<std::vector<float> > Vbr_25_SPS;
   // Error (folded in from other systematics)
-//  std::vector<std::vector<float> > Vbr_IV_err;
-//  std::vector<std::vector<float> > Vbr_25_IV_err;
-//  std::vector<std::vector<float> > Vbr_SPS_err;
-//  std::vector<std::vector<float> > Vbr_25_SPS_err;
+  float syst_box_width_to_set = 0.01;
+  std::vector<float> syst_box_width;
+  std::vector<std::vector<float> > Vbr_IV_err;
+  std::vector<std::vector<float> > Vbr_25_IV_err;
+  std::vector<std::vector<float> > Vbr_SPS_err;
+  std::vector<std::vector<float> > Vbr_25_SPS_err;
   for (int i_vop = 0; i_vop < vop_tray_indices.size(); ++i_vop) {
     std::cout << "current tray :: " << gReader->GetIV()->at(vop_tray_indices[i_vop])->tray_note << std::endl;
     
+    syst_box_width.push_back(syst_box_width_to_set);
     std::vector<int>* current_sipm_row = gReader->GetIV()->at(vop_tray_indices[i_vop])->row;
     std::vector<int>* current_sipm_col = gReader->GetIV()->at(vop_tray_indices[i_vop])->col;
     std::vector<float>* current_Vbr_IV = gReader->GetIV()->at(vop_tray_indices[i_vop])->IV_Vpeak;
@@ -649,67 +934,148 @@ void makeOperatingVoltageScan() {
       
       // Append data so that each vector is one SiPM--for converting to TGraph later
       if (i_vop == 0) {
+        // SiPM indexing
         sipm_row.push_back(current_sipm_row->at(i_sipm));
         sipm_col.push_back(current_sipm_col->at(i_sipm));
+        
+        // V_op scan data
         Vbr_IV.push_back(std::vector<float>());
         Vbr_25_IV.push_back(std::vector<float>());
         Vbr_SPS.push_back(std::vector<float>());
         Vbr_25_SPS.push_back(std::vector<float>());
+        
+        // V_op scan error -- currently just avg stdev from reproducibility
+        
+        Vbr_IV_err.push_back(std::vector<float>());
+        Vbr_25_IV_err.push_back(std::vector<float>());
+        Vbr_SPS_err.push_back(std::vector<float>());
+        Vbr_25_SPS_err.push_back(std::vector<float>());
         std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
       }
       
+      // V_op scan data
       Vbr_IV[i_sipm].push_back(current_Vbr_IV->at(i_sipm));
       Vbr_25_IV[i_sipm].push_back(current_Vbr_25_IV->at(i_sipm));
       Vbr_SPS[i_sipm].push_back(current_Vbr_SPS->at(i_sipm));
       Vbr_25_SPS[i_sipm].push_back(current_Vbr_25_SPS->at(i_sipm));
+      
+      // V_op scan error -- currently just avg stdev from reproducibility
+      Vbr_IV_err[i_sipm].push_back(gRepError_IV[0]);     // IV - not temp corrected
+      Vbr_25_IV_err[i_sipm].push_back(gRepError_IV[1]);  // IV - temp corrected
+      Vbr_SPS_err[i_sipm].push_back(gRepError_SPS[0]);   // SPS - not temp corrected
+      Vbr_25_SPS_err[i_sipm].push_back(gRepError_SPS[1]); // SPS - temp corrected
     }// End of SiPM loop
   }// End of V_op scan file loop
   
   
   // Make TGraphs of data over the V_op scan
-  char data_plot_option[5] = "pl";
+  char data_plot_option[5] = "pl 2";
   const int ntotal_scan = Vbr_IV[2].size();
   const int ntotal_sipm = Vbr_IV.size();
   std::cout << "ntotal_scan = " << ntotal_scan << std::endl;
   std::cout << "ntotal_sipm = " << ntotal_sipm << std::endl;
+  
+  // Data graphs
   TGraphErrors* sipm_vopscan_graph_IV[ntotal_sipm];
   TGraphErrors* sipm_vopscan_graph_IV_25[ntotal_sipm];
   TGraphErrors* sipm_vopscan_graph_SPS[ntotal_sipm];
   TGraphErrors* sipm_vopscan_graph_SPS_25[ntotal_sipm];
   TMultiGraph* sipm_vopscan_multigraph[ntotal_sipm];
+  
+  // Fit
+  TF1* linfit_IV[ntotal_sipm];
+  TF1* linfit_IV_25[ntotal_sipm];
+  TF1* linfit_SPS[ntotal_sipm];
+  TF1* linfit_SPS_25[ntotal_sipm];
+  
+  // Plot data and store plots
   for (int i_sipm = 0; i_sipm < ntotal_sipm; ++i_sipm) {
-    // Prepare the TGraph objects
+    // *-- Prepare the TGraph objects
     sipm_vopscan_multigraph[i_sipm] = new TMultiGraph();
     
     sipm_vopscan_graph_IV[i_sipm] = new TGraphErrors(ntotal_scan, 
-                                                     vop_tray_voltage.data(), Vbr_IV[i_sipm].data());
+                                                     vop_tray_voltage.data(), Vbr_IV[i_sipm].data(),
+                                                     syst_box_width.data(), Vbr_IV_err[i_sipm].data());
+    sipm_vopscan_graph_IV[i_sipm]->SetFillColorAlpha(plot_colors[0], 0.5);
     sipm_vopscan_graph_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    sipm_vopscan_graph_IV[i_sipm]->SetLineWidth(2);
     sipm_vopscan_graph_IV[i_sipm]->SetMarkerColor(plot_colors[0]);
     sipm_vopscan_graph_IV[i_sipm]->SetMarkerStyle(53);
-    sipm_vopscan_graph_IV[i_sipm]->SetMarkerSize(1.5);
+    sipm_vopscan_graph_IV[i_sipm]->SetMarkerSize(1.7);
     sipm_vopscan_multigraph[i_sipm]->Add(sipm_vopscan_graph_IV[i_sipm], data_plot_option);
     
-    sipm_vopscan_graph_IV_25[i_sipm] = new TGraphErrors(ntotal_scan, vop_tray_voltage.data(), Vbr_25_IV[i_sipm].data());
+    sipm_vopscan_graph_IV_25[i_sipm] = new TGraphErrors(ntotal_scan, 
+                                                        vop_tray_voltage.data(), Vbr_25_IV[i_sipm].data(),
+                                                        syst_box_width.data(), Vbr_25_IV_err[i_sipm].data());
+    sipm_vopscan_graph_IV_25[i_sipm]->SetFillColorAlpha(plot_colors_alt[0], 0.5);
     sipm_vopscan_graph_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
     sipm_vopscan_graph_IV_25[i_sipm]->SetMarkerColor(plot_colors_alt[0]);
     sipm_vopscan_graph_IV_25[i_sipm]->SetMarkerStyle(20);
-    sipm_vopscan_graph_IV_25[i_sipm]->SetMarkerSize(1.5);
+    sipm_vopscan_graph_IV_25[i_sipm]->SetMarkerSize(1.7);
     sipm_vopscan_multigraph[i_sipm]->Add(sipm_vopscan_graph_IV_25[i_sipm], data_plot_option);
     
-    sipm_vopscan_graph_SPS[i_sipm] = new TGraphErrors(ntotal_scan, vop_tray_voltage.data(), Vbr_SPS[i_sipm].data());
+    sipm_vopscan_graph_SPS[i_sipm] = new TGraphErrors(ntotal_scan, 
+                                                      vop_tray_voltage.data(), Vbr_SPS[i_sipm].data(),
+                                                      syst_box_width.data(), Vbr_SPS_err[i_sipm].data());
+    sipm_vopscan_graph_SPS[i_sipm]->SetFillColorAlpha(plot_colors[1], 0.5);
     sipm_vopscan_graph_SPS[i_sipm]->SetLineColor(plot_colors[1]);
     sipm_vopscan_graph_SPS[i_sipm]->SetMarkerColor(plot_colors[1]);
     sipm_vopscan_graph_SPS[i_sipm]->SetMarkerStyle(54);
-    sipm_vopscan_graph_SPS[i_sipm]->SetMarkerSize(1.5);
+    sipm_vopscan_graph_SPS[i_sipm]->SetMarkerSize(1.7);
     sipm_vopscan_multigraph[i_sipm]->Add(sipm_vopscan_graph_SPS[i_sipm], data_plot_option);
     
-    sipm_vopscan_graph_SPS_25[i_sipm] = new TGraphErrors(ntotal_scan, vop_tray_voltage.data(), Vbr_25_SPS[i_sipm].data());
+    sipm_vopscan_graph_SPS_25[i_sipm] = new TGraphErrors(ntotal_scan, 
+                                                         vop_tray_voltage.data(), Vbr_25_SPS[i_sipm].data(),
+                                                         syst_box_width.data(), Vbr_25_SPS_err[i_sipm].data());
+    sipm_vopscan_graph_SPS_25[i_sipm]->SetFillColorAlpha(plot_colors_alt[1], 0.5);
     sipm_vopscan_graph_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
     sipm_vopscan_graph_SPS_25[i_sipm]->SetMarkerColor(plot_colors_alt[1]);
     sipm_vopscan_graph_SPS_25[i_sipm]->SetMarkerStyle(21);
-    sipm_vopscan_graph_SPS_25[i_sipm]->SetMarkerSize(1.5);
+    sipm_vopscan_graph_SPS_25[i_sipm]->SetMarkerSize(1.7);
     sipm_vopscan_multigraph[i_sipm]->Add(sipm_vopscan_graph_SPS_25[i_sipm], data_plot_option);
     
+    
+    
+    // *-- Perform fitting to linear map and estimate flatness from error on the slope
+    // Fitting acting very weird--look into this more.
+//    float slopelim[2] = {-0.2, 0.2};
+//    char fitoption[5] = "";
+//    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+//                                     "[0] + [1]*(x-42.4)", 42.2, 42.6);
+//    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
+//    linfit_IV[i_sipm]->SetLineStyle(7);
+////    linfit_IV[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_IV[i_sipm]));
+//    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+//    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0); // seed null hypothesis as a guess
+//    sipm_vopscan_graph_IV[i_sipm]->Fit(linfit_IV[ntotal_sipm], fitoption);
+//    
+//    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+//                                   "[0] + [1]*(x-42.4)", 42.2, 42.6);
+//    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+//    linfit_IV_25[i_sipm]->SetLineStyle(5);
+////    linfit_IV_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_IV[i_sipm]));
+//    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+//    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+//    sipm_vopscan_graph_IV_25[i_sipm]->Fit(linfit_IV_25[ntotal_sipm], fitoption);
+//    
+//    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+//                                 "[0] + [1]*(x-42.4)", 42.2, 42.6);
+//    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+//    linfit_SPS[i_sipm]->SetLineStyle(7);
+////    linfit_SPS[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_SPS[i_sipm]));
+//    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+//    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+//    sipm_vopscan_graph_SPS[i_sipm]->Fit(linfit_SPS[ntotal_sipm], fitoption);
+//    
+//    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+//                                    "[0] + [1]*(x-42.4)", 42.2, 42.6);
+//    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+//    linfit_SPS_25[i_sipm]->SetLineStyle(5);
+////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
+////    linfit_SPS_25[i_sipm]->FixParameter(0, getAvgFromVector(Vbr_25_SPS[i_sipm]));
+//    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+//    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
+//    sipm_vopscan_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[ntotal_sipm], fitoption);
     
     // Prepare the canvas
     gCanvas_solo->cd();
@@ -724,6 +1090,10 @@ void makeOperatingVoltageScan() {
     sipm_vopscan_multigraph[i_sipm]->GetYaxis()->SetTitleOffset(1.2);
     sipm_vopscan_multigraph[i_sipm]->GetXaxis()->SetTitleOffset(1.2);
     sipm_vopscan_multigraph[i_sipm]->Draw("a");
+//    linfit_IV[i_sipm]->Draw("same");
+//    linfit_IV_25[i_sipm]->Draw("same");
+//    linfit_SPS[i_sipm]->Draw("same");
+//    linfit_SPS_25[i_sipm]->Draw("same");
     
     // Add reference lines
     TLine* typ_line = new TLine();
