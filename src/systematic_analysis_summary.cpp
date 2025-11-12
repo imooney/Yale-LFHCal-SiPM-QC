@@ -17,11 +17,13 @@
 // flags to control some options in analysis
 bool flag_use_all_trays_for_averages = false;       // Use all available trays' data to compute averages (Recommended ONLY when all trays are similar)
 bool global_flag_run_at_25_celcius = false;
+bool global_flag_adjust_IV_tempcorr = false;
 // TODO make class variable, I was silly and didn't think I would use this as much as I do...
 
 // Some helpful label strings
 const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected to 25C","Temperature corrected to 25C"};
 const char string_tempcorr_short[2][10] = {"","_25C"};
+
 
 // Global plot objects
 TCanvas* gCanvas_solo;
@@ -39,11 +41,13 @@ TH1D* gHist_rep_stdev[2];           // Stdev of SiPM repeated test distributions
 const double error_confidence = 0.9; // TODO frequentist confidence interval
 double gRepError_IV[2] = {0,0};     // Mean error from IV reproducibility, useful for other systematics/plots
 double gRepError_SPS[2] = {0,0};    // Mean error from SPS reproducibility, useful for other measurements
+double gTempcorr_IV = 0.034;        // Hamamatsu spec temperature correction: 34 mV / Kelvin
 
 // Plot limit controls
 double voltplot_limits[2] = {37.6, 38.6};
 double volthist_range[2] = {-0.06, 0.06};
 double darkcurr_limits[2] = {0, 35};
+
 
 
 // TODO refine color pallette
@@ -65,8 +69,10 @@ void drawGlobalReproducabilityHists();
 
 // Temperature
 void makeTemperatureScan();
+void makeTemperatureMap();
 
-// Cycle
+// Cycle/Cassette Location/Reshuffle
+void makeCycleScan();
 
 // Operating Voltage V_op
 void makeOperatingVoltageScan();
@@ -135,6 +141,14 @@ void systematic_analysis_summary() {
   reader->ReadDataSPS();
   
   makeTemperatureScan();
+  
+  // *-- Analysis tasks: Cycle scan
+  reader->SetFlatTrayString(); // Don't require parent directories end in -results
+  reader->ReadFile("../batch_data_cyclescan.txt");
+  reader->ReadDataIV();
+  reader->ReadDataSPS();
+  
+  makeCycleScan();
   
   
   
@@ -620,20 +634,21 @@ void makeTemperatureScan() {
   std::vector<int> sipm_row;
   std::vector<int> sipm_col;
   
-  // Data
-  std::vector<std::vector<float> > temp_IV;
+  // V_breakdown Data
   std::vector<std::vector<float> > Vbr_IV;
   std::vector<std::vector<float> > Vbr_25_IV;
-  std::vector<std::vector<float> > temp_SPS;
   std::vector<std::vector<float> > Vbr_SPS;
   std::vector<std::vector<float> > Vbr_25_SPS;
-  // Error (folded in from other systematics)
-  std::vector<std::vector<float> > temp_IV_err;
+  // V_breakdown Error (folded in from other systematics)
   std::vector<std::vector<float> > Vbr_IV_err;
   std::vector<std::vector<float> > Vbr_25_IV_err;
-  std::vector<std::vector<float> > temp_SPS_err;
   std::vector<std::vector<float> > Vbr_SPS_err;
   std::vector<std::vector<float> > Vbr_25_SPS_err;
+  // Temperature and Error
+  std::vector<std::vector<float> > temp_IV;
+  std::vector<std::vector<float> > temp_SPS;
+  std::vector<std::vector<float> > temp_IV_err;
+  std::vector<std::vector<float> > temp_SPS_err;
   
   // Gather relevant data from gReader
   for (int i_temp = 0; i_temp < tempscan_tray_indices.size(); ++i_temp) {
@@ -867,10 +882,18 @@ void makeTemperatureScan() {
     TLatex* tex_chi2[4];
     double base = 0.545;
     double diff = 0.047;
-    tex_chi2[0] = drawText(Form("#chi^{2} = %.3f",linfit_IV[i_sipm]->GetChisquare()),       0.775, base - 0*diff, false, kBlack, 0.035);
-    tex_chi2[1] = drawText(Form("#chi^{2} = %.3f",linfit_IV_25[i_sipm]->GetChisquare()),    0.775, base - 1*diff, false, kBlack, 0.035);
-    tex_chi2[2] = drawText(Form("#chi^{2} = %.3f",linfit_SPS[i_sipm]->GetChisquare()),      0.775, base - 2*diff, false, kBlack, 0.035);
-    tex_chi2[3] = drawText(Form("#chi^{2} = %.3f",linfit_SPS_25[i_sipm]->GetChisquare()),   0.775, base - 3*diff, false, kBlack, 0.035);
+    tex_chi2[0] = drawText(Form("#chi^{2}/NDF = %.3f",
+                                linfit_IV[i_sipm]->GetChisquare() /
+                                linfit_IV[i_sipm]->GetNDF()),             0.775, base - 0*diff, false, kBlack, 0.035);
+    tex_chi2[1] = drawText(Form("#chi^{2}/NDF = %.3f",
+                                linfit_IV_25[i_sipm]->GetChisquare() /
+                                linfit_IV_25[i_sipm]->GetNDF()),          0.775, base - 1*diff, false, kBlack, 0.035);
+    tex_chi2[2] = drawText(Form("#chi^{2}/NDF = %.3f",
+                                linfit_SPS[i_sipm]->GetChisquare() /
+                                linfit_SPS[i_sipm]->GetNDF()),            0.775, base - 2*diff, false, kBlack, 0.035);
+    tex_chi2[3] = drawText(Form("#chi^{2}/NDF = %.3f",
+                                linfit_SPS_25[i_sipm]->GetChisquare() /
+                                linfit_SPS_25[i_sipm]->GetNDF()),         0.775, base - 3*diff, false, kBlack, 0.035);
     
     // Draw some text about the fitting
     TLatex* tex_fit[3];
@@ -888,6 +911,15 @@ void makeTemperatureScan() {
     top_tex[4] = drawText("Test Stand Systematics: Temperature Scan",                  gPad->GetLeftMargin() + 0.05, 0.83, false, kBlack, 0.04);
     top_tex[5] = drawText(Form("%i Total Tests During Cooldown",ntotal_scan),          gPad->GetLeftMargin() + 0.05, 0.78, false, kBlack, 0.04);
     
+    // Write fit temperature correction and adjust for later tests
+    if (global_flag_adjust_IV_tempcorr) {
+      gTempcorr_IV = linfit_IV[i_sipm]->GetParameter(1);
+      std::cout << "Adjusting IV temperature correction coefficient to fit result :: ";
+      std::cout << t_blu << gTempcorr_IV << t_def << "." << std::endl;
+    }
+    
+    
+    
     // Might also be interesting to look at:
     // - Residuals against fit for closer look at potential nonlinearity
     // - Dist of fit coefficients + error relative to Hamamatsu nominal. Do we see consistent IV/SPS behavior?
@@ -900,16 +932,379 @@ void makeTemperatureScan() {
   
 }// End of systematic_analysis_summary::makeTemperatureScan
 
+
+
+// Check for a possible temperature gradient in the cassete test box
+// We do this by constructing a histogram of temperature differences
+// from the back temperature sensors to the forward ones in the same row.
+void makeTemperatureMap() {
+  
+  return;
+}// End of systematic_analysis_summary::makeTemperatureMap
+
+
+//========================================================================== Cassette Location Systematics
+
+
+
+// Analyse the data from cassette index/cycle scan data
+// This systematic test comprises of a set of SiPMs:
+//    - varying/cycling through each cassette location
+//    - held at roughly constant temperature
+//    - held at constant operating voltage
+//
+// This method assumes that the contiguous string "cycle"
+// is in the run notes/batch strings and only includes such data.
+void makeCycleScan() {
+  bool cycle_debug = false;
+  
+  // Find strings with cycle
+  std::vector<int> cycle_tray_indices;
+  std::vector<int> cycle_cassette_indices;
+  std::vector<std::string> cycle_tray_strings;
+  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
+    int cycle_pos = gReader->GetTrayStrings()->at(i_tray).find("cycle");
+    if (cycle_pos != -1) {
+      std::string swapstring = gReader->GetTrayStrings()->at(i_tray);
+      cycle_tray_indices.push_back(i_tray);
+      cycle_cassette_indices.push_back( std::stoi(swapstring.substr(cycle_pos + 6, swapstring.size() )) );
+      cycle_tray_strings.push_back(swapstring);
+      
+      std::cout << "Good cycle scan tray found at index " << t_blu << i_tray << t_def;
+      std::cout << " (" << t_grn << gReader->GetTrayStrings()->at(i_tray) << t_def;
+      std::cout << ") with cassette base index " << t_red << cycle_cassette_indices.back() << t_def << "." << std::endl;
+    }
+  }
+  
+  // Check that vopscan values were found, return if not
+  if (cycle_tray_indices.size() == 0) {
+    std::cout << "Warning in systematic_analysis_summary::makeOperatingVoltageScan: No trays with \"cycle\" found in dataset." << std::endl;
+    std::cout << "Check input batch file to verify cycle scan data are available." << std::endl;
+    return;
+  }
+  
+  // Initialize data arrays
+  
+  // SiPM identifer data
+  std::vector<int> sipm_row;
+  std::vector<int> sipm_col;
+  std::vector<std::vector<float> > cassette_index_adjusted; // (float type for TGraph plotting)
+  
+  // Data
+  std::vector<std::vector<float> > Vbr_IV;
+  std::vector<std::vector<float> > Vbr_25_IV;
+  std::vector<std::vector<float> > Vbr_SPS;
+  std::vector<std::vector<float> > Vbr_25_SPS;
+  // Error (folded in from other systematics)
+  float syst_box_width_to_set = 0.1;
+  std::vector<float> syst_box_width;
+  std::vector<std::vector<float> > Vbr_IV_err;
+  std::vector<std::vector<float> > Vbr_25_IV_err;
+  std::vector<std::vector<float> > Vbr_SPS_err;
+  std::vector<std::vector<float> > Vbr_25_SPS_err;
+  // Temperature and Error
+  std::vector<std::vector<float> > temp_IV;
+  std::vector<std::vector<float> > temp_SPS;
+  std::vector<std::vector<float> > temp_IV_err;
+  std::vector<std::vector<float> > temp_SPS_err;
+  
+  
+  // Gather relevant data from gReader
+  for (int i_cycle = 0; i_cycle < cycle_tray_indices.size(); ++i_cycle) {
+    if (cycle_debug) std::cout << "current tray :: " << gReader->GetIV()->at(cycle_tray_indices[i_cycle])->tray_note << std::endl;
+    
+    // Account for adjustment to cassette location for many SiPMs
+    
+    // Gather relevant data from gReader
+    syst_box_width.push_back(syst_box_width_to_set);
+    std::vector<int>* current_sipm_row = gReader->GetIV()->at(cycle_tray_indices[i_cycle])->row;
+    std::vector<int>* current_sipm_col = gReader->GetIV()->at(cycle_tray_indices[i_cycle])->col;
+    
+    std::vector<float>* current_Vbr_IV = gReader->GetIV()->at(cycle_tray_indices[i_cycle])->IV_Vpeak;
+    std::vector<float>* current_Vbr_25_IV = gReader->GetIV()->at(cycle_tray_indices[i_cycle])->IV_Vpeak_25C;
+    std::vector<float>* current_Vbr_SPS = gReader->GetSPS()->at(cycle_tray_indices[i_cycle])->SPS_Vbd;
+    std::vector<float>* current_Vbr_25_SPS = gReader->GetSPS()->at(cycle_tray_indices[i_cycle])->SPS_Vbd_25C;
+    
+    std::vector<float>* current_temp_IV = gReader->GetIV()->at(cycle_tray_indices[i_cycle])->avg_temp;
+    std::vector<float>* current_temp_SPS = gReader->GetSPS()->at(cycle_tray_indices[i_cycle])->avg_temp;
+    std::vector<float>* current_temp_IV_err = gReader->GetIV()->at(cycle_tray_indices[i_cycle])->stdev_temp;
+    std::vector<float>* current_temp_SPS_err = gReader->GetSPS()->at(cycle_tray_indices[i_cycle])->stdev_temp;
+    
+    // Allocate data from reader to local arrays
+    for (int i_sipm = 0; i_sipm < current_Vbr_IV->size(); ++i_sipm) {
+      if (current_Vbr_IV->at(i_sipm) == -999) continue;
+      if (cycle_debug) std::cout << "IV V_br for SiPM " << i_sipm << " = " << current_Vbr_IV->at(i_sipm) << std::endl;
+      
+      // Append data so that each vector is one SiPM--for converting to TGraph later
+      if (i_cycle == 0) {
+        // SiPM indexing
+        sipm_row.push_back(current_sipm_row->at(i_sipm));
+        sipm_col.push_back(current_sipm_col->at(i_sipm));
+        cassette_index_adjusted.push_back(std::vector<float>());
+        
+        // Cycle scan voltage data
+        Vbr_IV.push_back(std::vector<float>());
+        Vbr_25_IV.push_back(std::vector<float>());
+        Vbr_SPS.push_back(std::vector<float>());
+        Vbr_25_SPS.push_back(std::vector<float>());
+        
+        // Cycle scan voltage error -- currently just avg stdev systematic from reproducibility
+        Vbr_IV_err.push_back(std::vector<float>());
+        Vbr_25_IV_err.push_back(std::vector<float>());
+        Vbr_SPS_err.push_back(std::vector<float>());
+        Vbr_25_SPS_err.push_back(std::vector<float>());
+        
+        // Measured temperature and error
+        temp_IV.push_back(std::vector<float>());
+        temp_SPS.push_back(std::vector<float>());
+        temp_IV_err.push_back(std::vector<float>());
+        temp_SPS_err.push_back(std::vector<float>());
+        
+        if (cycle_debug) std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
+      }
+      
+      // Adjusted cassette location for multiple SiPMs in test
+      // (they can't all be in the same place at the same time after all)
+      cassette_index_adjusted[i_sipm].push_back( (cycle_cassette_indices[i_cycle] + i_sipm) % 32
+                                                + 32 * (cycle_cassette_indices[i_cycle] >= 32));
+      
+      // Cycle scan voltage data
+      Vbr_IV[i_sipm].push_back(current_Vbr_IV->at(i_sipm));
+      Vbr_25_IV[i_sipm].push_back(current_Vbr_25_IV->at(i_sipm) - (0.034 - gTempcorr_IV)*(25-current_temp_IV->at(i_sipm))); // Allow local corrections to temp coef.
+      Vbr_SPS[i_sipm].push_back(current_Vbr_SPS->at(i_sipm));
+      Vbr_25_SPS[i_sipm].push_back(current_Vbr_25_SPS->at(i_sipm));
+      
+      // Cycle scan voltage error -- currently just avg stdev systematic from reproducibility
+      Vbr_IV_err[i_sipm].push_back(gRepError_IV[0]);     // IV - not temp corrected
+      Vbr_25_IV_err[i_sipm].push_back(gRepError_IV[1]);  // IV - temp corrected
+      Vbr_SPS_err[i_sipm].push_back(gRepError_SPS[0]);   // SPS - not temp corrected
+      Vbr_25_SPS_err[i_sipm].push_back(gRepError_SPS[1]); // SPS - temp corrected
+      
+      
+      // Measured temperature and error
+      temp_IV[i_sipm].push_back(current_temp_IV->at(i_sipm));
+      temp_SPS[i_sipm].push_back(current_temp_SPS->at(i_sipm));
+      temp_IV_err[i_sipm].push_back(current_temp_IV_err->at(i_sipm));
+      temp_SPS_err[i_sipm].push_back(current_temp_SPS_err->at(i_sipm));
+      
+    }// End of SiPM loop
+  }// End of Cycle scan file loop
+  
+  
+  // Make TGraphs of data over the V_op scan
+  char data_plot_option[5] = "p 2";
+  const int ntotal_scan = Vbr_IV[2].size();
+  const int ntotal_sipm = Vbr_IV.size();
+  std::cout << "ntotal_scan = " << ntotal_scan << std::endl;
+  std::cout << "ntotal_sipm = " << ntotal_sipm << std::endl;
+  
+  // Data graphs
+  TGraphErrors* sipm_cycle_graph_IV[ntotal_sipm];
+  TGraphErrors* sipm_cycle_graph_IV_25[ntotal_sipm];
+  TGraphErrors* sipm_cycle_graph_SPS[ntotal_sipm];
+  TGraphErrors* sipm_cycle_graph_SPS_25[ntotal_sipm];
+  TMultiGraph*  sipm_cycle_multigraph[ntotal_sipm];
+  
+  // Fit
+  TF1* linfit_IV[ntotal_sipm];
+  TF1* linfit_IV_25[ntotal_sipm];
+  TF1* linfit_SPS[ntotal_sipm];
+  TF1* linfit_SPS_25[ntotal_sipm];
+  
+  // Plot data and store plots
+  for (int i_sipm = 0; i_sipm < ntotal_sipm; ++i_sipm) {
+    // *-- Prepare the TGraph objects
+    sipm_cycle_multigraph[i_sipm] = new TMultiGraph();
+    
+    sipm_cycle_graph_IV[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                   cassette_index_adjusted[i_sipm].data(),  Vbr_IV[i_sipm].data(),
+                                                   syst_box_width.data(),                   Vbr_IV_err[i_sipm].data());
+    sipm_cycle_graph_IV[i_sipm]->SetFillColorAlpha(plot_colors[0], 0.5);
+    sipm_cycle_graph_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    sipm_cycle_graph_IV[i_sipm]->SetLineWidth(2);
+    sipm_cycle_graph_IV[i_sipm]->SetMarkerColor(plot_colors[0]);
+    sipm_cycle_graph_IV[i_sipm]->SetMarkerStyle(53);
+    sipm_cycle_graph_IV[i_sipm]->SetMarkerSize(1.4);
+//    sipm_cycle_multigraph[i_sipm]->Add(sipm_cycle_graph_IV[i_sipm], data_plot_option);
+    
+    sipm_cycle_graph_IV_25[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                      cassette_index_adjusted[i_sipm].data(), Vbr_25_IV[i_sipm].data(),
+                                                      syst_box_width.data(),                  Vbr_25_IV_err[i_sipm].data());
+    sipm_cycle_graph_IV_25[i_sipm]->SetFillColorAlpha(plot_colors_alt[0], 0.5);
+    sipm_cycle_graph_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+    sipm_cycle_graph_IV_25[i_sipm]->SetMarkerColor(plot_colors_alt[0]);
+    sipm_cycle_graph_IV_25[i_sipm]->SetMarkerStyle(20);
+    sipm_cycle_graph_IV_25[i_sipm]->SetMarkerSize(1.4);
+    sipm_cycle_multigraph[i_sipm]->Add(sipm_cycle_graph_IV_25[i_sipm], data_plot_option);
+    
+    sipm_cycle_graph_SPS[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                    cassette_index_adjusted[i_sipm].data(),   Vbr_SPS[i_sipm].data(),
+                                                    syst_box_width.data(),                    Vbr_SPS_err[i_sipm].data());
+    sipm_cycle_graph_SPS[i_sipm]->SetFillColorAlpha(plot_colors[1], 0.5);
+    sipm_cycle_graph_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+    sipm_cycle_graph_SPS[i_sipm]->SetMarkerColor(plot_colors[1]);
+    sipm_cycle_graph_SPS[i_sipm]->SetMarkerStyle(54);
+    sipm_cycle_graph_SPS[i_sipm]->SetMarkerSize(1.4);
+//    sipm_cycle_multigraph[i_sipm]->Add(sipm_cycle_graph_SPS[i_sipm], data_plot_option);
+    
+    sipm_cycle_graph_SPS_25[i_sipm] = new TGraphErrors(ntotal_scan,
+                                                       cassette_index_adjusted[i_sipm].data(),  Vbr_25_SPS[i_sipm].data(),
+                                                       syst_box_width.data(),                   Vbr_25_SPS_err[i_sipm].data());
+    sipm_cycle_graph_SPS_25[i_sipm]->SetFillColorAlpha(plot_colors_alt[1], 0.5);
+    sipm_cycle_graph_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+    sipm_cycle_graph_SPS_25[i_sipm]->SetMarkerColor(plot_colors_alt[1]);
+    sipm_cycle_graph_SPS_25[i_sipm]->SetMarkerStyle(21);
+    sipm_cycle_graph_SPS_25[i_sipm]->SetMarkerSize(1.4);
+    sipm_cycle_multigraph[i_sipm]->Add(sipm_cycle_graph_SPS_25[i_sipm], data_plot_option);
+    
+    
+    
+    // *-- Perform fitting to linear map and estimate flatness from error on the slope
+    float rangelim[2] = {0, 64};
+    float slopelim[2] = {-0.07, 0.07};
+    // Usefil ptions for fitting:
+    //    Q - Quiet
+    //    W - Ignore errors
+    //    F - Use TMinuit for poly
+    //    R - use rangelim only for fitting
+    //    EX0 - ignore x axis errors
+    char fitoption[10] = "Q EX0";
+    linfit_IV[i_sipm] = new TF1(Form("linfit_IV_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_IV[i_sipm]->SetLineColor(plot_colors[0]);
+    linfit_IV[i_sipm]->SetLineStyle(7);
+    linfit_IV[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_IV[i_sipm]->SetParameter(getAvgFromVector(Vbr_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_cycle_graph_IV[i_sipm]->Fit(linfit_IV[i_sipm], fitoption);
+    
+    linfit_IV_25[i_sipm] = new TF1(Form("linfit_IV_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                   "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_IV_25[i_sipm]->SetLineColor(plot_colors_alt[0]);
+    linfit_IV_25[i_sipm]->SetLineStyle(5);
+    linfit_IV_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_IV_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_cycle_graph_IV_25[i_sipm]->Fit(linfit_IV_25[i_sipm], fitoption);
+    
+    linfit_SPS[i_sipm] = new TF1(Form("linfit_SPS_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                 "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_SPS[i_sipm]->SetLineColor(plot_colors[1]);
+    linfit_SPS[i_sipm]->SetLineStyle(7);
+    linfit_SPS[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_SPS[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_IV[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_cycle_graph_SPS[i_sipm]->Fit(linfit_SPS[i_sipm], fitoption);
+    
+    linfit_SPS_25[i_sipm] = new TF1(Form("linfit_SPS_25C_%i_%i", sipm_row[i_sipm],sipm_col[i_sipm]),
+                                    "[0] + [1]*(x-25)", rangelim[0], rangelim[1]);
+    linfit_SPS_25[i_sipm]->SetLineColor(plot_colors_alt[1]);
+    linfit_SPS_25[i_sipm]->SetLineStyle(5);
+    linfit_SPS_25[i_sipm]->SetParLimits(1, slopelim[0], slopelim[1]);
+    linfit_SPS_25[i_sipm]->SetParameters(getAvgFromVector(Vbr_25_SPS[i_sipm]), 0); // seed null hypothesis as a guess
+    sipm_cycle_graph_SPS_25[i_sipm]->Fit(linfit_SPS_25[i_sipm], fitoption);
+    
+    // Prepare the canvas
+    gCanvas_solo->cd();
+    gCanvas_solo->Clear();
+    gCanvas_solo->SetCanvasSize(1000, 500);
+    gPad->SetTicks(1,1);
+    gPad->SetRightMargin(0.015);
+    gPad->SetBottomMargin(0.08);
+    gPad->SetLeftMargin(0.09);
+    
+    // Plot the graphs--base layer
+    sipm_cycle_multigraph[i_sipm]->SetTitle(";Test Cassette Index;Measured V_{br} [V]");
+    sipm_cycle_multigraph[i_sipm]->GetYaxis()->SetRangeUser(voltplot_limits[0],voltplot_limits[1]);
+    sipm_cycle_multigraph[i_sipm]->GetYaxis()->SetTitleOffset(1.2);
+    sipm_cycle_multigraph[i_sipm]->GetXaxis()->SetTitleOffset(1.0);
+    sipm_cycle_multigraph[i_sipm]->Draw("a");
+    
+    // Add reference lines
+    TLine* typ_line = new TLine();
+    typ_line->SetLineStyle(8);
+    typ_line->SetLineColor(kGray+1);
+    typ_line->DrawLine(31.5, voltplot_limits[0], 31.5, voltplot_limits[1]);
+    
+    // Add legend--data
+    double ypush = -0.1;
+    TLegend* leg_data = new TLegend(0.15, 0.46+ypush, 0.45, 0.57+ypush);
+    leg_data->SetLineWidth(0);
+//    leg_data->AddEntry(sipm_cycle_graph_IV[i_sipm], "IV (ambient)", data_plot_option);
+    leg_data->AddEntry(sipm_cycle_graph_IV_25[i_sipm], "IV (25#circC)", data_plot_option);
+//    leg_data->AddEntry(sipm_cycle_graph_SPS[i_sipm], "SPS (ambient)", data_plot_option);
+    leg_data->AddEntry(sipm_cycle_graph_SPS_25[i_sipm], "SPS (25#circC)", data_plot_option);
+    leg_data->Draw();
+    
+    // Add legend--fitting
+    TLegend* leg_fit = new TLegend(0.55, 0.485+ypush, 0.95, 0.58+ypush);
+    leg_fit->SetLineWidth(0);
+    leg_fit->SetTextSize(0.035);
+//    leg_fit->AddEntry(linfit_IV[i_sipm], Form("%.3f #pm %.3f",
+//                                              1000*linfit_IV[i_sipm]->GetParameter(1),
+//                                              1000*linfit_IV[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_IV_25[i_sipm], Form("%.3f #pm %.3f",
+                                                 1000*linfit_IV_25[i_sipm]->GetParameter(1),
+                                                 1000*linfit_IV_25[i_sipm]->GetParError(1)), "l");
+//    leg_fit->AddEntry(linfit_SPS[i_sipm], Form("%.3f #pm %.3f",
+//                                               1000*linfit_SPS[i_sipm]->GetParameter(1),
+//                                               1000*linfit_SPS[i_sipm]->GetParError(1)), "l");
+    leg_fit->AddEntry(linfit_SPS_25[i_sipm], Form("%.3f #pm %.3f",
+                                                  1000*linfit_SPS_25[i_sipm]->GetParameter(1),
+                                                  1000*linfit_SPS_25[i_sipm]->GetParError(1)), "l");
+    leg_fit->Draw();
+    
+    // Draw the chi2 separately to align them horizontally
+    TLatex* tex_chi2[4];
+    double base = 0.545+ypush;
+    double diff = 0.047;
+//    tex_chi2[0] = drawText(Form("#chi^{2} = %.3f",linfit_IV[i_sipm]->GetChisquare()),       0.775, base - 0*diff, false, kBlack, 0.035);
+    tex_chi2[1] = drawText(Form("#chi^{2}/NDF = %.3f",
+                                linfit_IV_25[i_sipm]->GetChisquare() /
+                                linfit_IV_25[i_sipm]->GetNDF()),          0.775, base - 0*diff, false, kBlack, 0.035);
+//    tex_chi2[2] = drawText(Form("#chi^{2} = %.3f",linfit_SPS[i_sipm]->GetChisquare()),      0.775, base - 1*diff, false, kBlack, 0.035);
+    tex_chi2[3] = drawText(Form("#chi^{2}/NDF = %.3f",
+                                linfit_SPS_25[i_sipm]->GetChisquare() /
+                                linfit_SPS_25[i_sipm]->GetNDF()),         0.775, base - 1*diff, false, kBlack, 0.035);
+    
+    // Draw some text about the fitting
+    TLatex* tex_fit[3];
+    tex_fit[0] = drawText("Fit Slope [mV/index]", 0.55, 0.6+ypush, false, kBlack, 0.04);
+//    tex_fit[2] = drawText("Hamamatsu Nominal: #bf{34 mV/#circC}", 0.55, 0.35, false, kBlack, 0.035);
+    
+    // Draw some informative text about the setup
+    TLatex* top_tex[6];
+    top_tex[0] = drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",                 gPad->GetLeftMargin(), 0.91, false, kBlack, 0.04);
+    top_tex[1] = drawText("#bf{ePIC} Test Stand",                                      gPad->GetLeftMargin(), 0.955, false, kBlack, 0.045);
+    top_tex[2] = drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),              1-gPad->GetRightMargin(), 0.95, true, kBlack, 0.045);
+    top_tex[3] = drawText(Form("Tray %s SiPM (%i,%i)",
+                               gReader->GetIV()->at(cycle_tray_indices[0])->tray_note.substr(0,11).c_str(),
+                               sipm_row[i_sipm],sipm_col[i_sipm]),                     1-gPad->GetRightMargin(), 0.91, true, kBlack, 0.035);
+    top_tex[4] = drawText("Test Stand Systematics: Cassette Cycle Test",               gPad->GetLeftMargin() + 0.05, 0.83, false, kBlack, 0.04);
+    top_tex[5] = drawText(Form("%i Total Tests During Cooldown",ntotal_scan),          gPad->GetLeftMargin() + 0.05, 0.78, false, kBlack, 0.04);
+    
+    // Might also be interesting to look at:
+    // - Residuals against fit for closer look at potential nonlinearity
+    // - Dist of fit coefficients + error relative to Hamamatsu nominal. Do we see consistent IV/SPS behavior?
+    
+    gCanvas_solo->SaveAs(Form("../plots/systematic_plots/cassette_index/cycle_%i_%i_Vbr.pdf",
+                              sipm_row[i_sipm],sipm_col[i_sipm]));
+  }// End of SiPM plot construction loop
+  return;
+}
+
 //========================================================================== Operating Voltage V_op Systematics
 
 
 
 // Analyse the data from operating voltage V_op scan data
-// This systematic comprises of a set of SiPMs
+// This systematic test comprises of a set of SiPMs:
+//    - in one cassette location
+//    - held at roughly constant temperature
+//    - varying the test operating voltage
 //
 // This method assumes that the contiguous string "vopscan"
 // is in the run notes/batch strings and only includes such data.
 void makeOperatingVoltageScan() {
+  bool debug_vop = false;
+  
   // Find strings with vopscan
   std::vector<int> vop_tray_indices;
   std::vector<float> vop_tray_voltage;
@@ -951,8 +1346,9 @@ void makeOperatingVoltageScan() {
   std::vector<std::vector<float> > Vbr_SPS_err;
   std::vector<std::vector<float> > Vbr_25_SPS_err;
   for (int i_vop = 0; i_vop < vop_tray_indices.size(); ++i_vop) {
-    std::cout << "current tray :: " << gReader->GetIV()->at(vop_tray_indices[i_vop])->tray_note << std::endl;
+    if (debug_vop) std::cout << "current tray :: " << gReader->GetIV()->at(vop_tray_indices[i_vop])->tray_note << std::endl;
     
+    // Gather relevant data from gReader
     syst_box_width.push_back(syst_box_width_to_set);
     std::vector<int>* current_sipm_row = gReader->GetIV()->at(vop_tray_indices[i_vop])->row;
     std::vector<int>* current_sipm_col = gReader->GetIV()->at(vop_tray_indices[i_vop])->col;
@@ -960,9 +1356,11 @@ void makeOperatingVoltageScan() {
     std::vector<float>* current_Vbr_25_IV = gReader->GetIV()->at(vop_tray_indices[i_vop])->IV_Vpeak_25C;
     std::vector<float>* current_Vbr_SPS = gReader->GetSPS()->at(vop_tray_indices[i_vop])->SPS_Vbd;
     std::vector<float>* current_Vbr_25_SPS = gReader->GetSPS()->at(vop_tray_indices[i_vop])->SPS_Vbd_25C;
+    
+    // Allocate data from reader to local arrays
     for (int i_sipm = 0; i_sipm < current_Vbr_IV->size(); ++i_sipm) {
       if (current_Vbr_IV->at(i_sipm) == -999) continue;
-      std::cout << "IV V_br for SiPM " << i_sipm << " = " << current_Vbr_IV->at(i_sipm) << std::endl;
+      if (debug_vop) std::cout << "IV V_br for SiPM " << i_sipm << " = " << current_Vbr_IV->at(i_sipm) << std::endl;
       
       // Append data so that each vector is one SiPM--for converting to TGraph later
       if (i_vop == 0) {
@@ -982,7 +1380,7 @@ void makeOperatingVoltageScan() {
         Vbr_25_IV_err.push_back(std::vector<float>());
         Vbr_SPS_err.push_back(std::vector<float>());
         Vbr_25_SPS_err.push_back(std::vector<float>());
-        std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
+        if (debug_vop) std::cout << "push back new SiPM...(" << sipm_row.back() << ',' << sipm_col.back() << ")." << std::endl;
       }
       
       // V_op scan data
