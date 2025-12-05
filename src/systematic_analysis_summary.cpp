@@ -17,8 +17,10 @@
 // flags to control some options in analysis
 bool flag_use_all_trays_for_averages = false;       // Use all available trays' data to compute averages (Recommended ONLY when all trays are similar)
 bool global_flag_run_at_25_celcius = false;
-bool global_flag_adjust_IV_tempcorr = false;
 // TODO make class variable, I was silly and didn't think I would use this as much as I do...
+bool global_flag_adjust_IV_tempcorr = false;
+bool global_flag_find_cycle_temp_gradient = true;
+
 
 // Some helpful label strings
 const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected to 25C","Temperature corrected to 25C"};
@@ -36,12 +38,16 @@ const int nbins_residualhist = 21;
 const int nbins_stdevhist = 10;
 TH1D* gHist_rep_residual[2];        // Residuals for reproducibility comparisons among SiPMs
 TH1D* gHist_rep_stdev[2];           // Stdev of SiPM repeated test distributions in a histogram
+TH1D* gData_cycletest_sipm_pair_difference_IV;    // Differences between IV test of same SiPM from adjacent cassette locations after temperature correction to 25C
+TH1D* gData_cycletest_sipm_pair_difference_SPS;   // Differences bewteen SPS test of same SiPM from adjacent cassette locations after temperature correction to 25C
+double avg_sipm_pair_difference[2] = {0,0};
+int count_sipm_pair_differences = 0;
 
 // Error estimators
 const double error_confidence = 0.9; // TODO frequentist confidence interval
 double gRepError_IV[2] = {0,0};     // Mean error from IV reproducibility, useful for other systematics/plots
 double gRepError_SPS[2] = {0,0};    // Mean error from SPS reproducibility, useful for other measurements
-double gTempcorr_IV = 0.034;        // Hamamatsu spec temperature correction: 34 mV / Kelvin
+double gTempcorr_IV = 0.0369;        // Hamamatsu spec temperature correction: 34 mV / Kelvin. From our fits, maybe more like 36.5 mV/K or so
 
 // Plot limit controls
 double voltplot_limits[2] = {37.6, 38.6};
@@ -69,7 +75,7 @@ void drawGlobalReproducabilityHists();
 
 // Temperature
 void makeTemperatureScan();
-void makeTemperatureMap();
+void makeTemperatureGradientHist();
 
 // Cycle/Cassette Location/Reshuffle
 void makeCycleScan();
@@ -128,7 +134,7 @@ void systematic_analysis_summary() {
   
   // Read IV and SPS data for vop scan
   reader->SetFlatTrayString(); // Don't require parent directories end in -results
-  reader->ReadFile("../batch_data_vopscan.txt");
+  reader->AppendFile("../batch_data_vopscan.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
   
@@ -136,7 +142,7 @@ void systematic_analysis_summary() {
   
   // *-- Analysis tasks: Temperature
   reader->SetFlatTrayString(); // Don't require parent directories end in -results
-  reader->ReadFile("../batch_data_tempscan.txt");
+  reader->AppendFile("../batch_data_tempscan.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
   
@@ -144,13 +150,17 @@ void systematic_analysis_summary() {
   
   // *-- Analysis tasks: Cycle scan
   reader->SetFlatTrayString(); // Don't require parent directories end in -results
-  reader->ReadFile("../batch_data_cyclescan.txt");
+  reader->AppendFile("../batch_data_cyclescan.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
   
   makeCycleScan();
   
   
+  
+  // Make a temperature difference hist with all available data
+  // (to search for a potential temperature gradient in the test box)
+  makeTemperatureGradientHist();
   
 }// End of systematic_analysis_summary::main
 
@@ -934,13 +944,196 @@ void makeTemperatureScan() {
 
 
 
-// Check for a possible temperature gradient in the cassete test box
+// Check for a possible temperature gradient in the cassette test box
 // We do this by constructing a histogram of temperature differences
 // from the back temperature sensors to the forward ones in the same row.
-void makeTemperatureMap() {
+void makeTemperatureGradientHist() {
+  bool debug_temp_diff = true;
+  const int temp_sensor_location[32] = {
+    0, 0, 4, 4,
+    0, 0, 4, 4,
+    1, 1, 5, 5,
+    1, 1, 5, 5,
+    2, 2, 6, 6,
+    2, 2, 6, 6,
+    3, 3, 7, 7,
+    3, 3, 7, 7
+  };
+  
+  // Make histogram of temperature differences
+  TH1D* hist_temp_difference_sensor_IV = new TH1D("hist_temp_difference_sensor_IV",
+                                                  ";Front-to-Back Temperature Gradient (T_{front} - T_{back})/d [#circC/cm];Count of Measurement Pairs",
+                                                  nbin_temp_grad,range_temp_grad[0],range_temp_grad[1]);
+  hist_temp_difference_sensor_IV->SetFillColorAlpha(plot_colors_alt[0], 0.3);
+  hist_temp_difference_sensor_IV->SetLineColor(plot_colors_alt[0]);
+  hist_temp_difference_sensor_IV->SetLineWidth(1);
+  hist_temp_difference_sensor_IV->SetMarkerColor(plot_colors_alt[0]);
+  
+  TH1D* hist_temp_difference_sensor_SPS = new TH1D("hist_temp_difference_sensor_SPS",
+                                                   ";Front-to-Back Temperature Gradient (T_{front} - T_{back})/d [#circC/cm];Count of Measurement Pairs",
+                                                   nbin_temp_grad,range_temp_grad[0],range_temp_grad[1]);
+  hist_temp_difference_sensor_SPS->SetFillColorAlpha(plot_colors_alt[1], 0.3);
+  hist_temp_difference_sensor_SPS->SetLineColor(plot_colors_alt[1]);
+  hist_temp_difference_sensor_SPS->SetLineWidth(1);
+  hist_temp_difference_sensor_SPS->SetMarkerColor(plot_colors_alt[1]);
+  
+  // Loop over all trays included in the batch
+  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
+    
+    // Check if this was a cycle test--indexing is more dynamic for these
+    int cycle_pos = gReader->GetTrayStrings()->at(i_tray).find("cycle");
+    
+    // Define variable arrays
+    std::vector<int>* current_sipm_row = gReader->GetIV()->at(i_tray)->row;
+    std::vector<int>* current_sipm_col = gReader->GetIV()->at(i_tray)->col;
+    std::vector<float>* current_temp_IV = gReader->GetIV()->at(i_tray)->avg_temp;
+    std::vector<float>* current_temp_SPS = gReader->GetSPS()->at(i_tray)->avg_temp;
+    std::vector<float>* current_temp_IV_err = gReader->GetIV()->at(i_tray)->stdev_temp;
+    std::vector<float>* current_temp_SPS_err = gReader->GetSPS()->at(i_tray)->stdev_temp;
+    
+    // array of temperature values at cassette locations
+    float temp_values_IV[8] = {
+      -1,-1,-1,-1,
+      -1,-1,-1,-1
+    };
+    float temp_values_SPS[8] = {
+      -1,-1,-1,-1,
+      -1,-1,-1,-1
+    };
+    
+    if (debug_temp_diff) {
+      std::cout << "Data for tray " << gReader->GetTrayStrings()->at(i_tray) << ": " << std::endl;
+    }
+    
+    // Loop over SiPMs in the tray and append relevant temperature difference data
+    for (int i_sipm = 0; i_sipm < current_temp_IV->size(); ++i_sipm) {
+      int temp_loc = 0;
+      if (current_temp_IV->at(i_sipm) == -999) {
+        if (i_sipm % 32 == 31) goto checkfill;
+        continue;
+      }
+      
+      // Find the position of this SiPM in the test cassette
+      int cassette_index_adjusted;
+      if (cycle_pos != -1) {// Cycle test--handle dynamic positioning
+        
+        // Get base cassette index from cycle test index
+        std::string swapstring = gReader->GetTrayStrings()->at(i_tray);
+        int cycle_cassette_index = std::stoi( swapstring.substr(cycle_pos + 6, swapstring.size()) );
+        
+        // Modify for cycle conditions
+        cassette_index_adjusted = ( (cycle_cassette_index + i_sipm) % 32 );
+        
+      } else {// Not cycle test--use standard positioning
+        cassette_index_adjusted = i_sipm % 32;
+        
+      }
+      
+      // Assign temperature to this position in the array
+      temp_loc = temp_sensor_location[cassette_index_adjusted];
+      temp_values_IV[temp_loc] = current_temp_IV->at(i_sipm);
+      temp_values_SPS[temp_loc] = current_temp_SPS->at(i_sipm);
+      
+      if (debug_temp_diff) {
+        std::cout << "SiPM i=" << t_blu << i_sipm << t_def;
+        std::cout << " is in location " << t_grn << cassette_index_adjusted << t_def;
+        std::cout << ", temploc = " << t_red << temp_loc << t_def << "." << std::endl;
+      }
+      
+      // hook from non-tested SiPMs
+    checkfill:
+      
+      // Check if the cassette is complete--and fill hist if so
+      if (i_sipm % 32 == 31) {
+        if (debug_temp_diff) std::cout << "Fill hist!" << std::endl;
+        for (int i_col = 0; i_col < 4; ++i_col) {
+          if (temp_values_IV[i_col] != -1 && temp_values_IV[i_col + 4] != -1) {
+            hist_temp_difference_sensor_IV->Fill((temp_values_IV[i_col + 4] - temp_values_IV[i_col]) / temp_sensor_separation_cm);
+            hist_temp_difference_sensor_SPS->Fill((temp_values_SPS[i_col + 4] - temp_values_SPS[i_col]) / temp_sensor_separation_cm);
+            
+            if (debug_temp_diff) {
+              std::cout << "Good temp diff found from sensors T[";
+              std::cout << t_blu << i_col + 4 << t_def << "] (";
+              std::cout << temp_values_IV[i_col + 4] << ") - T[";
+              std::cout << t_blu << i_col << t_def << "] (";
+              std::cout << temp_values_IV[i_col] << ")" << std::endl;
+            }
+          }// End of check for good local temp difference
+        }// end of cassette temp sensor column loop
+        
+        // Reset cassette for next loop
+        if (cycle_pos == -1) for (int i_sensor = 0; i_sensor < 8; ++i_sensor) temp_values_IV[i_sensor] = -1;
+        else break; // break if cycle test--only one test
+      }// End of complete cassette check/hist fill
+    }// End of SiPM loop
+  }// End of batch tray file loop
+  
+  // Prepare the canvas
+  gCanvas_solo->cd();
+  gCanvas_solo->Clear();
+  gCanvas_solo->SetCanvasSize(600, 500);
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.015);
+  gPad->SetBottomMargin(0.08);
+  gPad->SetLeftMargin(0.09);
+  
+  // Draw histogram of temperature differential
+  hist_temp_difference_sensor_IV->Draw("hist");
+  hist_temp_difference_sensor_SPS->Draw("hist same");
+  
+  // Add histograms of pair difference from cycle test if available
+  if (global_flag_find_cycle_temp_gradient) {
+    gData_cycletest_sipm_pair_difference_IV->Draw("hist same");
+    gData_cycletest_sipm_pair_difference_SPS->Draw("hist same");
+  }
+  
+  
+  // Draw lines for the average of each distribution
+  avg_sipm_pair_difference[0] /= count_sipm_pair_differences;
+  avg_sipm_pair_difference[1] /= count_sipm_pair_differences;
+  
+  TLine* avg_line = new TLine();
+  avg_line->SetLineStyle(7);
+  avg_line->SetLineWidth(2);
+  avg_line->SetLineColor(plot_colors[0]);
+  avg_line->DrawLine(avg_sipm_pair_difference[0], 0, 
+                     avg_sipm_pair_difference[0], hist_temp_difference_sensor_IV->GetMaximum()*1.05);
+  avg_line->SetLineColor(plot_colors[1]);
+  avg_line->DrawLine(avg_sipm_pair_difference[1], 0,
+                     avg_sipm_pair_difference[1], hist_temp_difference_sensor_IV->GetMaximum()*1.05);
+  avg_line->SetLineStyle(5);
+  avg_line->SetLineColor(plot_colors_alt[0]);
+  avg_line->DrawLine(hist_temp_difference_sensor_IV->GetMean(), 0,
+                     hist_temp_difference_sensor_IV->GetMean(), hist_temp_difference_sensor_IV->GetMaximum()*1.05);
+  avg_line->SetLineColor(plot_colors_alt[1]);
+  avg_line->DrawLine(hist_temp_difference_sensor_SPS->GetMean(), 0,
+                     hist_temp_difference_sensor_SPS->GetMean(), hist_temp_difference_sensor_IV->GetMaximum()*1.05);
+  
+  // Add legend--data
+  TLegend* leg_tempgrad = new TLegend(0.15, 0.40, 0.47, 0.62);
+  leg_tempgrad->SetLineWidth(0);
+  leg_tempgrad->AddEntry(hist_temp_difference_sensor_IV, "Temp Sensors (IV)", "f");
+  leg_tempgrad->AddEntry(hist_temp_difference_sensor_SPS, "Temp Sensors (SPS)", "f");
+  leg_tempgrad->AddEntry(gData_cycletest_sipm_pair_difference_IV, "Cycled SiPM IV", "f");
+  leg_tempgrad->AddEntry(gData_cycletest_sipm_pair_difference_SPS, "Cycled SiPM SPS", "f");
+  leg_tempgrad->Draw();
+  
+  // Draw some informative text about the setup
+  TLatex* top_tex[8];
+  top_tex[0] = drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",                  gPad->GetLeftMargin(), 0.91, false, kBlack, 0.04);
+  top_tex[1] = drawText("#bf{ePIC} Test Stand",                                       gPad->GetLeftMargin(), 0.955, false, kBlack, 0.045);
+  top_tex[2] = drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),               1-gPad->GetRightMargin(), 0.95, true, kBlack, 0.045);
+  top_tex[3] = drawText("Test Stand Systematics:",                                    gPad->GetLeftMargin() + 0.048, 0.83, false, kBlack, 0.035);
+  top_tex[4] = drawText("Cassette Temperature Gradient",                              gPad->GetLeftMargin() + 0.048, 0.78, false, kBlack, 0.035);
+  top_tex[5] = drawText("Assuming physical separations:",                             0.67-gPad->GetRightMargin(), 0.83, false, kBlack, 0.025);
+  top_tex[6] = drawText(Form("Sensor to Sensor: %0.2f cm", temp_sensor_separation_cm),0.70-gPad->GetRightMargin(), 0.785, false, kBlack, 0.025);
+  top_tex[7] = drawText(Form("SiPM to SiPM: %0.2f cm", sipm_cassette_separation_cm),  0.70-gPad->GetRightMargin(), 0.75, false, kBlack, 0.025);
+  
+  // Store plot
+  gCanvas_solo->SaveAs("../plots/systematic_plots/temperature/temp_differential_hist.pdf");
   
   return;
-}// End of systematic_analysis_summary::makeTemperatureMap
+}// End of systematic_analysis_summary::makeTemperatureGradientHist
 
 
 //========================================================================== Cassette Location Systematics
@@ -957,6 +1150,9 @@ void makeTemperatureMap() {
 // is in the run notes/batch strings and only includes such data.
 void makeCycleScan() {
   bool cycle_debug = false;
+  
+  
+  // *-- Check valid gReader state
   
   // Find strings with cycle
   std::vector<int> cycle_tray_indices;
@@ -983,7 +1179,8 @@ void makeCycleScan() {
     return;
   }
   
-  // Initialize data arrays
+  
+  // *-- Initialize data arrays
   
   // SiPM identifer data
   std::vector<int> sipm_row;
@@ -1008,6 +1205,8 @@ void makeCycleScan() {
   std::vector<std::vector<float> > temp_IV_err;
   std::vector<std::vector<float> > temp_SPS_err;
   
+  
+  // *-- Gather data from gReader
   
   // Gather relevant data from gReader
   for (int i_cycle = 0; i_cycle < cycle_tray_indices.size(); ++i_cycle) {
@@ -1091,6 +1290,8 @@ void makeCycleScan() {
   }// End of Cycle scan file loop
   
   
+  // *-- Initialize graph objects
+  
   // Make TGraphs of data over the V_op scan
   char data_plot_option[5] = "p 2";
   const int ntotal_scan = Vbr_IV[2].size();
@@ -1105,11 +1306,75 @@ void makeCycleScan() {
   TGraphErrors* sipm_cycle_graph_SPS_25[ntotal_sipm];
   TMultiGraph*  sipm_cycle_multigraph[ntotal_sipm];
   
-  // Fit
+  // Fit functions
   TF1* linfit_IV[ntotal_sipm];
   TF1* linfit_IV_25[ntotal_sipm];
   TF1* linfit_SPS[ntotal_sipm];
   TF1* linfit_SPS_25[ntotal_sipm];
+  
+  
+  // *-- Analysis subroutine: temp gradient
+  
+  // Gather data for temperature gradient in cycle test
+  if (global_flag_find_cycle_temp_gradient) {
+    // Given that the middle is already temperature corrected, the line fit won't tell us about the physical temperature gradient,
+    // but the residual gradient after correction (due to temperature difference between the sensor and SiPM position along the gradient).
+    // Because of this, the best approach to explore the temperature gradient is by comparing SiPMs which are connected to the same sensor, after correction.
+    //
+    // Then by dividing against the difference in length we should be able to reliably find the physical gradient.
+    
+    // Construct histograms
+    gData_cycletest_sipm_pair_difference_IV = new TH1D("hist_cycletest_sipm_pair_difference_IV",
+                                                       ";Temperature Gradient [#circC/cm];Counts",
+                                                       nbin_temp_grad,range_temp_grad[0],range_temp_grad[1]);
+    gData_cycletest_sipm_pair_difference_IV->SetFillColorAlpha(plot_colors[0], 0.3);
+    gData_cycletest_sipm_pair_difference_IV->SetLineColor(plot_colors[0]);
+    gData_cycletest_sipm_pair_difference_IV->SetLineWidth(1);
+    gData_cycletest_sipm_pair_difference_IV->SetMarkerColor(plot_colors[0]);
+    gData_cycletest_sipm_pair_difference_IV->SetMarkerStyle(53);
+    gData_cycletest_sipm_pair_difference_IV->SetMarkerSize(1.4);
+    
+    gData_cycletest_sipm_pair_difference_SPS = new TH1D("hist_cycletest_sipm_pair_difference_SPS",
+                                                        ";Temperature Gradient [#circC/cm];Counts",
+                                                        nbin_temp_grad,range_temp_grad[0],range_temp_grad[1]);
+    gData_cycletest_sipm_pair_difference_SPS->SetFillColorAlpha(plot_colors[1], 0.3);
+    gData_cycletest_sipm_pair_difference_SPS->SetLineColor(plot_colors[1]);
+    gData_cycletest_sipm_pair_difference_SPS->SetMarkerColor(plot_colors[1]);
+    gData_cycletest_sipm_pair_difference_SPS->SetMarkerStyle(54);
+    gData_cycletest_sipm_pair_difference_SPS->SetMarkerSize(1.4);
+    
+    
+    gData_cycletest_sipm_pair_difference_IV->Fill(1);
+    
+    // Gather pairwise temp difference data
+    for (int i_sipm = 0; i_sipm < ntotal_sipm; ++i_sipm) {
+      for (int i_cassette = 0; i_cassette < 32; i_cassette += 2) {
+        float find_IV[2];
+        float find_SPS[2];
+        
+        // Find data corresponding to the desired SiPM index, inefficient but ok.
+        for (int i_unsorted = 0; i_unsorted < 32; ++i_unsorted) {
+          if (cassette_index_adjusted[i_sipm][i_unsorted] == i_cassette)          {
+            find_IV[0] = Vbr_25_IV[i_sipm][i_unsorted];
+            find_SPS[0] = Vbr_25_SPS[i_sipm][i_unsorted];
+          } else if (cassette_index_adjusted[i_sipm][i_unsorted] == i_cassette + 1) {
+            find_IV[1] = Vbr_25_IV[i_sipm][i_unsorted];
+            find_SPS[1] = Vbr_25_SPS[i_sipm][i_unsorted];
+          }
+        }// End of cassette index check loop
+        
+        // Fill temperature gradient histograms and record data for averaging.
+        gData_cycletest_sipm_pair_difference_IV->Fill((find_IV[1] - find_IV[0])/(gTempcorr_IV * sipm_cassette_separation_cm));
+        gData_cycletest_sipm_pair_difference_SPS->Fill((find_SPS[1] - find_SPS[0])/(gTempcorr_IV * sipm_cassette_separation_cm));
+        avg_sipm_pair_difference[0] += (find_IV[1] - find_IV[0])/(gTempcorr_IV * sipm_cassette_separation_cm);
+        avg_sipm_pair_difference[1] += (find_SPS[1] - find_SPS[0])/(gTempcorr_IV * sipm_cassette_separation_cm);
+        ++count_sipm_pair_differences;
+      }// End of cassette index loop
+    }// End of SiPM loop from cycle test
+  }// End of temp difference gathering
+  
+  
+  // *-- Plotting
   
   // Plot data and store plots
   for (int i_sipm = 0; i_sipm < ntotal_sipm; ++i_sipm) {
@@ -1156,7 +1421,6 @@ void makeCycleScan() {
     sipm_cycle_graph_SPS_25[i_sipm]->SetMarkerStyle(21);
     sipm_cycle_graph_SPS_25[i_sipm]->SetMarkerSize(1.4);
     sipm_cycle_multigraph[i_sipm]->Add(sipm_cycle_graph_SPS_25[i_sipm], data_plot_option);
-    
     
     
     // *-- Perform fitting to linear map and estimate flatness from error on the slope

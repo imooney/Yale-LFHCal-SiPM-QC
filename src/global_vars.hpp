@@ -31,8 +31,19 @@ const double declare_Vbd_outlier_range = 0.055; // +/- 50mV range around average
 const int NROW = 20;
 const int NCOL = 23;
 
+// Information about SiPM locations in physical space
+const float temp_sensor_separation_cm = 0.27;
+const float sipm_cassette_separation_cm = 1.0; // TODO measure actual board, these are placeholders from what I roughly remember.
+// Temp corr looks weird, seems like factor of 2 could make them align??? I don't think the SiPMs are further than the sensors, that wouldn't make sense....
+
 // Variables for I/O handling
 const char batch_data_file[20] = "../batch_data.txt";
+
+
+// Variables to control histogram/plot ranges
+const int nbin_temp_grad = 19;
+//const int nbin_temp_grad = 39;
+const double range_temp_grad[2] = {-0.4, 0.4};
 
 
 #endif /* global_vars_h */
