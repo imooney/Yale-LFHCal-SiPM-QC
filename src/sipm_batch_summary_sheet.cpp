@@ -26,8 +26,8 @@ const char string_tempcorr_short[2][10] = {"","_25C"};
 // Global plot objects
 TCanvas* gCanvas_solo;
 
-// Plot limit controls
-double voltplot_limits[2] = {37.6, 38.6};
+// Static plot limit controls
+double voltplot_limits_static[2] = {37.2, 38.8};
 double darkcurr_limits[2] = {0, 35};
 
 
@@ -40,12 +40,15 @@ Int_t plot_colors[3] = {
 
 //========================================================================== Forward declarations
 
-// V_Breakdown and V_peak analysis
+// V_Breakdown and V_peak distributions
 void makeHist_IV_Vpeak(bool flag_run_at_25_celcius = true);
 void makeHist_SPS_Vbreakdown(bool flag_run_at_25_celcius = true);
+
+// Indexed plots to display test data over a tray/for all trays
 void makeIndexSeries(bool flag_run_at_25_celcius = true);
 void makeIndexedTray(bool flag_run_at_25_celcius);
-void makeIndexCassette(bool flag_run_at_25_celcius = true);
+
+// Heat maps of test results for SiPM tray, cassette test location
 void makeTrayMapVpeak(bool flag_run_at_25_celcius = true);
 void makeTrayMapVbreakdown(bool flag_run_at_25_celcius = true);
 void makeTestMapVpeak(bool flag_run_at_25_celcius = true);
@@ -178,7 +181,7 @@ void makeHist_DarkCurrent() {
   hist_dark_current_overvoltage->SetFillColorAlpha(plot_colors[1], 0.4);
   
   
-  double range_Idark_plot[2] = {0.5, hist_dark_current_undervoltage->GetBinContent(1) * 3.75};
+  double range_Idark_plot[2] = {0.5, hist_dark_current_undervoltage->GetMaximum() * 3.75};
   hist_dark_current_undervoltage->GetYaxis()->SetRangeUser(range_Idark_plot[0], range_Idark_plot[1]);
   hist_dark_current_undervoltage->GetXaxis()->SetTitleOffset(1.2);
   
@@ -295,7 +298,26 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
       }
     }
     
-    // plot histograms
+    // Gather average V_bd for the tray
+    double avg_voltages[2];
+    if (flag_use_all_trays_for_averages) {
+      avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
+      avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
+    } else {
+      avg_voltages[0] = getAvgVpeak(i_tray, flag_run_at_25_celcius); //IV
+      avg_voltages[1] = getAvgVbreakdown(i_tray, flag_run_at_25_celcius); //SPS
+    }
+    
+    // Set plot range--dynamically based on the results of the testing
+    double aspect_separation = (avg_voltages[0] - avg_voltages[1])/0.55;
+    double voltplot_limits[2] = {
+      avg_voltages[1] - 0.2 *aspect_separation,
+      avg_voltages[0] + 0.25*aspect_separation
+    };
+    
+    // *-- plot histograms to represent the indexed SiPM test results
+    
+    // Set up the canvas/draw established hists
     gCanvas_solo->cd();
     hist_indexed_Vpeak->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]);
     hist_indexed_Vpeak->GetYaxis()->SetTitleOffset(0.85);
@@ -307,17 +329,6 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     hist_indexed_Vbreakdown->SetMarkerStyle(21);
     
     // Draw reference averaged +/- 50 MV lines
-    
-    double avg_voltages[2];
-    if (flag_use_all_trays_for_averages) {
-      avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
-      avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
-    } else {
-      avg_voltages[0] = getAvgVpeak(i_tray, flag_run_at_25_celcius); //IV
-      avg_voltages[1] = getAvgVbreakdown(i_tray, flag_run_at_25_celcius); //SPS
-    }
-    
-    // TObjects for drawing
     TLine* avg_line = new TLine();
     
     // Average line: V_peak (IV)
@@ -426,7 +437,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   
   // plot histograms
   gCanvas_solo->cd();
-  hist_indexed_Vpeak_tray->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]);
+  hist_indexed_Vpeak_tray->GetYaxis()->SetRangeUser(voltplot_limits_static[0], voltplot_limits_static[1]);
   hist_indexed_Vpeak_tray->GetYaxis()->SetTitleOffset(1.35);
   hist_indexed_Vpeak_tray->SetLineColor(plot_colors[0]);
   hist_indexed_Vpeak_tray->SetLineWidth(2);
@@ -471,7 +482,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   TLine* batch_line = new TLine();
   batch_line->SetLineColor(kGray+1);
   batch_line->SetLineStyle(6);
-  batch_line->DrawLine(4, voltplot_limits[0], 4, voltplot_limits[1]);
+  batch_line->DrawLine(4, voltplot_limits_static[0], 4, voltplot_limits_static[1]);
   
   // assure points sit on top of lines
   hist_indexed_Vpeak_tray->Draw("b p e1 x0 same");
@@ -484,7 +495,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   vbd_legend->SetLineWidth(0);
   vbd_legend->AddEntry(hist_indexed_Vpeak_tray, "IV V_{bd} (also called V_{peak})", "p");
   vbd_legend->AddEntry(hist_indexed_Vbreakdown_tray, "SPS V_{bd}", "p");
-  vbd_legend->Draw();
+//  vbd_legend->Draw();
   
   // Draw some text giving info on the setup
   drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.06, 0.91, false, kBlack, 0.04);
@@ -503,7 +514,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
   line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
   line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
-  line_legend->Draw();
+//  line_legend->Draw();
   
   gCanvas_solo->SaveAs(Form("../plots/batch_plots/batch_Vbr_trayavg%s.pdf",string_tempcorr_short[flag_run_at_25_celcius]));
   
@@ -511,127 +522,6 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   delete hist_indexed_Vbreakdown_tray;
   
 }// End of sipm_batch_summary_sheet::makeIndexedTray
-
-
-
-// Construct a scatter plot of V_peak and V_bd vs SiPM cassette index (during testing)
-// This enables one to clearly see systematic trends/compare trends during a single test
-//
-// TODO return TObjectArray for summary sheet
-void makeIndexCassette(bool flag_run_at_25_celcius) {
-  
-  gCanvas_solo->Clear();
-  gCanvas_solo->SetCanvasSize(750, 600);
-  gCanvas_solo->cd();
-  gPad->SetTicks(1,1);
-  gPad->SetRightMargin(0.03);
-  gPad->SetTopMargin(0.11);
-  
-  // Iterate over all available data
-  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
-    
-    int IV_size = gReader->GetIV()->at(i_tray)->IV_Vpeak->size();
-    int SPS_size = gReader->GetSPS()->at(i_tray)->SPS_Vbd->size();
-    
-    // Make histograms
-    TH1F* hist_indexed_Vpeak_cassette = new TH1F("hist_indexed_Vpeak_cassette",
-                                                 ";SiPM index [flattened];V_{br} [V]",
-                                                 32, 0, 32);
-    TH1F* hist_indexed_Vbreakdown_cassette = new TH1F("hist_indexed_Vbreakdown",
-                                                      ";SiPM index [flattened];V_{br} [V]",
-                                                      32, 0, 32);
-    
-    // Append all data
-//    if (flag_run_at_25_celcius) {
-//      for (int i_IV = 1; i_IV <= IV_size; ++i_IV)
-//        hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV - 1));
-//      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS)
-//        hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS - 1));
-//    } else {
-//      for (int i_IV = 1; i_IV <= IV_size; ++i_IV)
-//        hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV - 1));
-//      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS)
-//        hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
-//    }
-//    
-//    // plot histograms
-//    gCanvas_solo->cd();
-//    hist_indexed_Vpeak->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]);
-//    hist_indexed_Vpeak->SetMarkerColor(plot_colors[0]);
-//    hist_indexed_Vpeak->SetMarkerStyle(20);
-//    hist_indexed_Vpeak->Draw("hist p");
-//    
-//    hist_indexed_Vbreakdown->SetMarkerColor(plot_colors[1]);
-//    hist_indexed_Vbreakdown->SetMarkerStyle(21);
-//    
-//    // Draw reference averaged +/- 50 MV lines
-//    
-//    double avg_voltages[2];
-//    if (flag_use_all_trays_for_averages) {
-//      avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
-//      avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
-//    } else {
-//      avg_voltages[0] = getAvgVpeak(i_tray, flag_run_at_25_celcius); //IV
-//      avg_voltages[1] = getAvgVbreakdown(i_tray, flag_run_at_25_celcius); //SPS
-//    }
-//    
-//    // TObjects for drawing
-//    TLine* avg_line = new TLine();
-//    
-//    // Average line: V_peak (IV)
-//    avg_line->SetLineColor(kBlack);
-//    avg_line->DrawLine(0, avg_voltages[0], IV_size, avg_voltages[0]);
-//    avg_line->SetLineColor(kGray+2);
-//    avg_line->SetLineStyle(7);
-//    avg_line->DrawLine(0, avg_voltages[0]+0.05, IV_size, avg_voltages[0]+0.05);
-//    avg_line->DrawLine(0, avg_voltages[0]-0.05, IV_size, avg_voltages[0]-0.05);
-//    
-//    // Average line: V_breakdown (SPS)
-//    avg_line->SetLineStyle(1);
-//    avg_line->SetLineColor(kBlack);
-//    avg_line->DrawLine(0, avg_voltages[1], IV_size, avg_voltages[1]);
-//    avg_line->SetLineColor(kGray+2);
-//    avg_line->SetLineStyle(7);
-//    avg_line->DrawLine(0, avg_voltages[1]+0.05, IV_size, avg_voltages[1]+0.05);
-//    avg_line->DrawLine(0, avg_voltages[1]-0.05, IV_size, avg_voltages[1]-0.05);
-//    
-//    // Cassette test lines
-//    TLine* cassette_line = new TLine();
-//    cassette_line->SetLineColor(kGray+1);
-//    cassette_line->SetLineStyle(6);
-//    for (int i = 1; i <= 14; ++i) cassette_line->DrawLine(32*i, voltplot_limits[0], 32*i, voltplot_limits[1]);
-//    
-//    // assure points sit on top of lines
-//    hist_indexed_Vpeak->Draw("hist p same");
-//    hist_indexed_Vbreakdown->Draw("hist p same");
-//    
-//    // Legend for labeling the two plots
-//    TLegend* vbd_legend = new TLegend(0.635, 0.4, 0.93, 0.55);
-//    vbd_legend->SetLineWidth(0);
-//    vbd_legend->AddEntry(hist_indexed_Vpeak, "IV V_{bd} (also called V_{peak})", "p");
-//    vbd_legend->AddEntry(hist_indexed_Vbreakdown, "SPS V_{bd}", "p");
-//    vbd_legend->Draw();
-//    
-//    // Draw some text giving info on the setup
-//    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.1, 0.92, false, kBlack, 0.05);
-//    drawText(Form("Hamamatsu Tray #%s", gReader->GetTrayStrings()->at(i_tray).c_str()), 0.97, 0.94, true, kBlack, 0.05);
-//    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.97, 0.90, true, kBlack, 0.04);
-//    
-//    
-//    //save histogramschar string_tempcorr[2][50]
-//    gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed%s/%s_indexed_Vbd%s.pdf",
-//                              string_tempcorr_short[flag_run_at_25_celcius],
-//                              gReader->GetTrayStrings()->at(i_tray).c_str(),
-//                              string_tempcorr_short[flag_run_at_25_celcius]));
-//    
-//    delete hist_indexed_Vpeak;
-//    delete hist_indexed_Vbreakdown;
-  }
-  
-  return;
-}// End of sipm_batch_summary_sheet::makeIndexCassette
-
-
 
 //========================================================================== Solo plot generating Macros: SiPM Tray/Test Mappings
 

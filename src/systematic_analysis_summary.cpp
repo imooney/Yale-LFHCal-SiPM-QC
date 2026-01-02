@@ -964,17 +964,21 @@ void makeTemperatureGradientHist() {
   TH1D* hist_temp_difference_sensor_IV = new TH1D("hist_temp_difference_sensor_IV",
                                                   ";Front-to-Back Temperature Gradient (T_{front} - T_{back})/d [#circC/cm];Count of Measurement Pairs",
                                                   nbin_temp_grad,range_temp_grad[0],range_temp_grad[1]);
-  hist_temp_difference_sensor_IV->SetFillColorAlpha(plot_colors_alt[0], 0.3);
+  hist_temp_difference_sensor_IV->SetFillColorAlpha(plot_colors_alt[0], 0.2); // 0.3 on solid fill
+//  hist_temp_difference_sensor_IV->SetFillStyle(3017);
   hist_temp_difference_sensor_IV->SetLineColor(plot_colors_alt[0]);
-  hist_temp_difference_sensor_IV->SetLineWidth(1);
+  hist_temp_difference_sensor_IV->SetLineWidth(2);
+  hist_temp_difference_sensor_IV->SetLineStyle(3);
   hist_temp_difference_sensor_IV->SetMarkerColor(plot_colors_alt[0]);
   
   TH1D* hist_temp_difference_sensor_SPS = new TH1D("hist_temp_difference_sensor_SPS",
                                                    ";Front-to-Back Temperature Gradient (T_{front} - T_{back})/d [#circC/cm];Count of Measurement Pairs",
                                                    nbin_temp_grad,range_temp_grad[0],range_temp_grad[1]);
-  hist_temp_difference_sensor_SPS->SetFillColorAlpha(plot_colors_alt[1], 0.3);
+  hist_temp_difference_sensor_SPS->SetFillColorAlpha(plot_colors_alt[1], 0.2);
+//  hist_temp_difference_sensor_SPS->SetFillStyle(3018);
   hist_temp_difference_sensor_SPS->SetLineColor(plot_colors_alt[1]);
-  hist_temp_difference_sensor_SPS->SetLineWidth(1);
+  hist_temp_difference_sensor_SPS->SetLineWidth(2);
+  hist_temp_difference_sensor_SPS->SetLineStyle(3);
   hist_temp_difference_sensor_SPS->SetMarkerColor(plot_colors_alt[1]);
   
   // Loop over all trays included in the batch
@@ -1083,7 +1087,9 @@ void makeTemperatureGradientHist() {
   
   // Add histograms of pair difference from cycle test if available
   if (global_flag_find_cycle_temp_gradient) {
+//    gData_cycletest_sipm_pair_difference_IV->SetFillStyle(3444);
     gData_cycletest_sipm_pair_difference_IV->Draw("hist same");
+//    gData_cycletest_sipm_pair_difference_SPS->SetFillStyle(3844);
     gData_cycletest_sipm_pair_difference_SPS->Draw("hist same");
   }
   
