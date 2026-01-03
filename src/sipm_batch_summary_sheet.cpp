@@ -25,9 +25,12 @@ const char string_tempcorr_short[2][10] = {"","_25C"};
 
 // Global plot objects
 TCanvas* gCanvas_solo;
+TCanvas* gCanvas_double;
+std::vector<std::vector<TPad*> > cpads;
 
 // Static plot limit controls
-double voltplot_limits_static[2] = {37.2, 38.8};
+double voltplot_limits_static[2] = {37.15, 38.8};
+double diffplot_limits_static[2] = {-0.48, 0.48};
 double darkcurr_limits[2] = {0, 35};
 
 
@@ -71,6 +74,7 @@ void sipm_batch_summary_sheet() {
   
   // Initialize canvases
   gCanvas_solo = new TCanvas();
+  gCanvas_double = new TCanvas();
   gStyle->SetOptStat(0);
   
   
@@ -406,45 +410,140 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
 //
 // TODO return TObjectArray for summary sheet
 void makeIndexedTray(bool flag_run_at_25_celcius) {
-  
-  gCanvas_solo->Clear();
-  gCanvas_solo->SetCanvasSize(750, 600); // TODO size of canvas varies with number of trays
-  gCanvas_solo->cd();
-  gPad->SetTicks(1,1);
-  gPad->SetRightMargin(0.03);
-  gPad->SetLeftMargin(0.11);
-  gPad->SetTopMargin(0.11);
-  
-  // Histograms
+  const bool debug_tray_index = false;
   const int n_trays = gReader->GetIV()->size();
+  const int lim_trays = 8; // threshold below which to reformat the plot for few trays
+  
+  // Set up canvas dynamically based on the number of trays
+  gCanvas_double->cd();
+  gCanvas_double->Clear();
+  gCanvas_double->SetCanvasSize(300+40*n_trays, 750);
+  cpads.clear();
+  cpads.push_back(std::vector<TPad*>());
+  cpads[0].push_back(buildPad("index_tray_0", 0, 1./3, 1, 1));
+  cpads[0].push_back(buildPad("index_tray_1", 0, 0, 1, 1./3));
+  
+  // Set up main pad: 300+40*n x 500
+  cpads[0][0]->cd();
+  const float aspect_ratio = static_cast<float>(300+40*n_trays)/500.;
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.03*aspect_ratio);
+  gPad->SetLeftMargin(0.15-0.04*aspect_ratio);
+  gPad->SetTopMargin(0.11);
+  gPad->SetBottomMargin(0);
+  double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
+  
+  // Set up secondary pad: 300+40*n x 250
+  cpads[0][1]->cd();
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(cpads[0][0]->GetRightMargin());
+  gPad->SetLeftMargin(cpads[0][0]->GetLeftMargin());
+  gPad->SetTopMargin(0);
+  if (n_trays > lim_trays) gPad->SetBottomMargin(2*0.11);
+  else                     gPad->SetBottomMargin(2*0.09);
+
+  // Initialize Histograms
   TH1F* hist_indexed_Vpeak_tray = new TH1F("hist_indexed_Vpeak_tray",
                                            ";Hamamatsu Tray Number;V_{br} [V]",
                                            n_trays, 0, n_trays);
   TH1F* hist_indexed_Vbreakdown_tray = new TH1F("hist_indexed_Vbreakdown",
                                                 ";Hamamatsu Tray Number;V_{br} [V]",
                                                 n_trays, 0, n_trays);
+  TH1F* hist_indexed_Vbreakdown_nominal = new TH1F("hist_indexed_Vbreakdown_nominal",
+                                                   ";Hamamatsu Tray Number;V_{Br} [V]",
+                                                   n_trays, 0, n_trays);
+  TH1F* hist_diffnominal_Vpeak = new TH1F("hist_diffnominal_Vpeak",
+                                           ";Hamamatsu Tray Number;V_{br} #minus V_{br, Nominal} [V]",
+                                           n_trays, 0, n_trays);
+  TH1F* hist_diffnominal_Vbreakdown = new TH1F("hist_diffnominal_Vbreakdown",
+                                                ";Hamamatsu Tray Number;V_{br} #minus V_{br, Nominal} [V]",
+                                                n_trays, 0, n_trays);
   
-  // Gather avg data and add to histogram
-  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
-    hist_indexed_Vpeak_tray->GetXaxis()->SetBinLabel(i_tray + 1, gReader->GetTrayStrings()->at(i_tray).c_str());
+  // Alphabetize, separate by batch
+  if (debug_tray_index) std::cout << "Sorted list : " << std::endl;
+  int tray_reshuffle_index[n_trays];
+  for (int i = 0; i < n_trays; ++i) tray_reshuffle_index[i] = i;
+  std::string ref_string;
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    ref_string = gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]);
+    for (int j_tray = i_tray + 1; j_tray < n_trays; ++j_tray) {
+      if (ref_string.compare(gReader->GetTrayStrings()->at(tray_reshuffle_index[j_tray])) > 0) {
+        ref_string = gReader->GetTrayStrings()->at(tray_reshuffle_index[j_tray]);
+        
+        // index swap necessary to ensure that the same tray isn't repeated
+        int temp = tray_reshuffle_index[i_tray];
+        tray_reshuffle_index[i_tray] = tray_reshuffle_index[j_tray];
+        tray_reshuffle_index[j_tray] = temp;
+      }
+    }// End of next element finding
     
-    hist_indexed_Vpeak_tray->SetBinContent(i_tray + 1, getAvgVpeak(i_tray, flag_run_at_25_celcius));
-    hist_indexed_Vpeak_tray->SetBinError(i_tray + 1, getStdevVpeak(i_tray, flag_run_at_25_celcius));
+    // Assign to reshuffled list
+    if (debug_tray_index) std::cout << gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]) << std::endl;
+    ref_string = gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]);
+  }// End of alphabetize/tray sort
+  
+  // Gather avg data for tray measurements and add to histogram
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    int i_fill = tray_reshuffle_index[i_tray];
+    hist_indexed_Vpeak_tray->GetXaxis()->SetBinLabel(i_tray + 1, gReader->GetTrayStrings()->at(i_fill).c_str());
+    hist_diffnominal_Vpeak->GetXaxis()->SetBinLabel(i_tray + 1, gReader->GetTrayStrings()->at(i_fill).c_str());
+    
+    hist_indexed_Vpeak_tray->SetBinContent(i_tray + 1, getAvgVpeak(i_fill, flag_run_at_25_celcius));
+    hist_indexed_Vpeak_tray->SetBinError(i_tray + 1, getStdevVpeak(i_fill, flag_run_at_25_celcius));
 
-    hist_indexed_Vbreakdown_tray->SetBinContent(i_tray + 1, getAvgVbreakdown(i_tray, flag_run_at_25_celcius));
-    hist_indexed_Vbreakdown_tray->SetBinError(i_tray + 1, getStdevVbreakdown(i_tray, flag_run_at_25_celcius));
+    hist_indexed_Vbreakdown_tray->SetBinContent(i_tray + 1, getAvgVbreakdown(i_fill, flag_run_at_25_celcius));
+    hist_indexed_Vbreakdown_tray->SetBinError(i_tray + 1, getStdevVbreakdown(i_fill, flag_run_at_25_celcius));
   }
   
-  // plot histograms
-  gCanvas_solo->cd();
+  // Gather nominal data reported by Hamamatsu, stored in separate file
+  std::ifstream nominal_file("../tray_nominal_data.txt");
+  std::string line;
+  while (getline(nominal_file, line)) {
+    std::stringstream linestream(line);
+    std::string entry;
+    std::string reldata[2] = {"",""};
+    while (getline(linestream, entry, ' ')) {
+      if (entry.size() == 0) continue; // Repeated spaces
+      if (entry[0] == '#') continue; // Comments
+      
+      // Gather relevant data
+      if (reldata[0].compare("") == 0) reldata[0] = entry;
+      else if (reldata[1].compare("") == 0) reldata[1] = entry;
+      else break;
+    }
+    
+    // search for matching trays among the gathered data
+    for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+      int i_fill = tray_reshuffle_index[i_tray];
+      if (reldata[0].compare(gReader->GetTrayStrings()->at(i_fill)) == 0) {
+        if (debug_tray_index) {
+          std::cout << "Matching nominal found on tray " << t_blu << reldata[0] << t_def << " :: ";
+          std::cout << t_red << std::stof(reldata[1]) << t_def << std::endl;
+        }
+        
+        hist_indexed_Vbreakdown_nominal->SetBinContent(i_tray + 1, std::stof(reldata[1]) - 4.0);
+        hist_indexed_Vbreakdown_nominal->SetBinError(i_tray + 1, 0);
+        
+        // Set hists for difference against the nominal
+        hist_diffnominal_Vpeak->SetBinContent(i_tray + 1,       hist_indexed_Vpeak_tray->GetBinContent(i_tray + 1) - std::stof(reldata[1]) + 4.0);
+        hist_diffnominal_Vpeak->SetBinError(i_tray + 1,         hist_indexed_Vpeak_tray->GetBinError(i_tray + 1));
+        hist_diffnominal_Vbreakdown->SetBinContent(i_tray + 1,  hist_indexed_Vbreakdown_tray->GetBinContent(i_tray + 1) - std::stof(reldata[1]) + 4.0);
+        hist_diffnominal_Vbreakdown->SetBinError(i_tray + 1,    hist_indexed_Vbreakdown_tray->GetBinError(i_tray + 1));
+      }
+    }// End of data matching
+  }// End of nominal data gathering
+  
+  // Format histograms
+  cpads[0][0]->cd();
+  if (n_trays > lim_trays) hist_indexed_Vpeak_tray->GetXaxis()->SetTitleOffset(1.40);
   hist_indexed_Vpeak_tray->GetYaxis()->SetRangeUser(voltplot_limits_static[0], voltplot_limits_static[1]);
-  hist_indexed_Vpeak_tray->GetYaxis()->SetTitleOffset(1.35);
+  hist_indexed_Vpeak_tray->GetYaxis()->SetTitleOffset(0.6 + 0.8/aspect_ratio);
   hist_indexed_Vpeak_tray->SetLineColor(plot_colors[0]);
   hist_indexed_Vpeak_tray->SetLineWidth(2);
   hist_indexed_Vpeak_tray->SetFillColorAlpha(plot_colors[0],0);
   hist_indexed_Vpeak_tray->SetMarkerColor(plot_colors[0]);
   hist_indexed_Vpeak_tray->SetMarkerStyle(20);
-  hist_indexed_Vpeak_tray->SetMarkerSize(2);
+  hist_indexed_Vpeak_tray->SetMarkerSize(1.0 + 1.0/aspect_ratio);
   hist_indexed_Vpeak_tray->Draw("b p e1 x0");
   
   hist_indexed_Vbreakdown_tray->SetLineColor(plot_colors[1]);
@@ -452,11 +551,42 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   hist_indexed_Vbreakdown_tray->SetFillColorAlpha(plot_colors[1],0);
   hist_indexed_Vbreakdown_tray->SetMarkerColor(plot_colors[1]);
   hist_indexed_Vbreakdown_tray->SetMarkerStyle(21);
-  hist_indexed_Vbreakdown_tray->SetMarkerSize(2);
+  hist_indexed_Vbreakdown_tray->SetMarkerSize(1.0 + 1.0/aspect_ratio);
   
+  hist_indexed_Vbreakdown_nominal->SetLineColor(kBlack);
+  hist_indexed_Vbreakdown_nominal->SetLineWidth(2);
+  hist_indexed_Vbreakdown_nominal->SetFillColorAlpha(kBlack,0);
+  hist_indexed_Vbreakdown_nominal->SetMarkerColor(kBlack);
+  hist_indexed_Vbreakdown_nominal->SetMarkerStyle(53);
+  hist_indexed_Vbreakdown_nominal->SetMarkerSize(1.0 + 1.0/aspect_ratio);
+  
+  cpads[0][1]->cd();
+  if (n_trays > lim_trays) hist_diffnominal_Vpeak->GetXaxis()->SetTitleOffset(1.40);
+  hist_diffnominal_Vpeak->GetXaxis()->SetTickSize(2.0 * hist_diffnominal_Vpeak->GetXaxis()->GetTickLength());
+  hist_diffnominal_Vpeak->GetXaxis()->SetTitleSize(2.0 * hist_diffnominal_Vpeak->GetXaxis()->GetTitleSize());
+  hist_diffnominal_Vpeak->GetXaxis()->SetLabelSize(2.0 * hist_diffnominal_Vpeak->GetXaxis()->GetLabelSize());
+  hist_diffnominal_Vpeak->GetXaxis()->SetLabelOffset(2.0 * hist_diffnominal_Vpeak->GetXaxis()->GetLabelOffset());
+  hist_diffnominal_Vpeak->GetYaxis()->SetNdivisions(505);
+  hist_diffnominal_Vpeak->GetYaxis()->SetLabelSize(2.0 * hist_diffnominal_Vpeak->GetYaxis()->GetLabelSize());
+  hist_diffnominal_Vpeak->GetYaxis()->SetTitleSize(2.0 * hist_diffnominal_Vpeak->GetYaxis()->GetTitleSize());
+  hist_diffnominal_Vpeak->GetYaxis()->SetRangeUser(diffplot_limits_static[0], diffplot_limits_static[1]);
+  hist_diffnominal_Vpeak->GetYaxis()->SetTitleOffset(0.5*(0.6 + 0.8/aspect_ratio));
+  hist_diffnominal_Vpeak->SetLineColor(plot_colors[0]);
+  hist_diffnominal_Vpeak->SetLineWidth(hist_indexed_Vpeak_tray->GetLineWidth());
+  hist_diffnominal_Vpeak->SetFillColorAlpha(plot_colors[0], 0);
+  hist_diffnominal_Vpeak->SetMarkerColor(plot_colors[0]);
+  hist_diffnominal_Vpeak->SetMarkerStyle(hist_indexed_Vpeak_tray->GetMarkerStyle());
+  hist_diffnominal_Vpeak->SetMarkerSize(hist_indexed_Vpeak_tray->GetMarkerSize());
+  hist_diffnominal_Vpeak->Draw("b p e1 x0");
+  
+  hist_diffnominal_Vbreakdown->SetLineColor(plot_colors[1]);
+  hist_diffnominal_Vbreakdown->SetLineWidth(hist_indexed_Vbreakdown_tray->GetLineWidth());
+  hist_diffnominal_Vbreakdown->SetFillColorAlpha(plot_colors[1], 0);
+  hist_diffnominal_Vbreakdown->SetMarkerColor(plot_colors[1]);
+  hist_diffnominal_Vbreakdown->SetMarkerStyle(hist_indexed_Vbreakdown_tray->GetMarkerStyle());
+  hist_diffnominal_Vbreakdown->SetMarkerSize(hist_indexed_Vbreakdown_tray->GetMarkerSize());
   
   // Draw reference averaged +/- 50 MV lines, average over all trays
-  
   double avg_voltages[2];
   avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
   avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
@@ -465,7 +595,13 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   TLine* avg_line = new TLine();
   TLine* dev_line = new TLine();
   
+  // Unity line for deviation plot
+  cpads[0][1]->cd();
+  dev_line->SetLineColor(kGray + 1);
+  dev_line->DrawLine(0, 0, n_trays, 0);
+  
   // Average line: V_peak (IV)
+  cpads[0][0]->cd();
   avg_line->SetLineColor(kBlack);
   avg_line->DrawLine(0, avg_voltages[0], n_trays, avg_voltages[0]);
   dev_line->SetLineColor(kGray+2);
@@ -478,48 +614,84 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   dev_line->DrawLine(0, avg_voltages[1]+0.05, n_trays, avg_voltages[1]+0.05);
   dev_line->DrawLine(0, avg_voltages[1]-0.05, n_trays, avg_voltages[1]-0.05);
   
-  // SiPM batch delimeter lines (if relevant) TODO make dynamic (include tray storter in SiPMDataReader)
+  
+  
+  // SiPM batch delimeter lines, dynamic to the input data
   TLine* batch_line = new TLine();
   batch_line->SetLineColor(kGray+1);
   batch_line->SetLineStyle(6);
-  batch_line->DrawLine(4, voltplot_limits_static[0], 4, voltplot_limits_static[1]);
+  std::string last_batch;
+  float start_of_batch = 0.5;
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    std::stringstream traystream(gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]));
+    if (i_tray == 0) {getline(traystream, last_batch, '-'); continue;}
+    
+    std::string next_batch;
+    getline(traystream, next_batch, '-');
+    if (last_batch.compare(next_batch) != 0 || i_tray == n_trays - 1) {
+      // draw new batch delimiter
+      if (last_batch.compare(next_batch) != 0) {
+        cpads[0][1]->cd();
+        batch_line->DrawLine(i_tray, diffplot_limits_static[0], i_tray, diffplot_limits_static[1]);
+        cpads[0][0]->cd();
+        batch_line->DrawLine(i_tray, voltplot_limits_static[0], i_tray, voltplot_limits_static[1]);
+      }
+      
+      // Label the batch on the plot
+      double batch_text_x = gPad->GetLeftMargin() + plot_window_size_x * static_cast<float>(start_of_batch)/n_trays + 0.01;
+      drawText(Form("Batch %s", last_batch.c_str()), batch_text_x, 0.81, false, kBlack, 0.0375);
+      if (last_batch.compare("250717") == 0) drawText("(ORNL)", batch_text_x, 0.77, false, kBlack, 0.0375);
+      
+      // continue to next batch
+      last_batch = next_batch;
+      start_of_batch = i_tray;
+    }
+  }// End of batch delimiter lines
+  
+  
   
   // assure points sit on top of lines
+  cpads[0][0]->cd();
   hist_indexed_Vpeak_tray->Draw("b p e1 x0 same");
   hist_indexed_Vbreakdown_tray->Draw("b p e1 x0 same");
+  hist_indexed_Vbreakdown_nominal->Draw("b p e1 x0 same");
   
   // Legend for labeling the two V_breakdown measurement types
-  float leg_extra_space = 0;
-  if (flag_run_at_25_celcius) leg_extra_space = 0.04;
-  TLegend* vbd_legend = new TLegend(0.625, 0.36 + leg_extra_space, 0.94, 0.51 + leg_extra_space);
+  double first_x_margin = gPad->GetLeftMargin() + plot_window_size_x * 5.0/n_trays;
+  TLegend* vbd_legend = new TLegend(0.15, 0.05, first_x_margin - 0.02, 0.27);
   vbd_legend->SetLineWidth(0);
+  vbd_legend->AddEntry(hist_indexed_Vbreakdown_nominal, "Hamamatsu Nominal", "p");
   vbd_legend->AddEntry(hist_indexed_Vpeak_tray, "IV V_{bd} (also called V_{peak})", "p");
   vbd_legend->AddEntry(hist_indexed_Vbreakdown_tray, "SPS V_{bd}", "p");
-//  vbd_legend->Draw();
+  vbd_legend->Draw();
   
   // Draw some text giving info on the setup
-  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.06, 0.91, false, kBlack, 0.04);
-  drawText("#bf{ePIC} Test Stand", 0.06, 0.955, false, kBlack, 0.045);
-  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 0.98, 0.95, true, kBlack, 0.045);
-  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.98, 0.905, true, kBlack, 0.035);
-  
-  // Draw some text about the batches
-  drawText(Form("Batch %s", gReader->GetTrayStrings()->at(0).substr(0,6).c_str()), 0.155, 0.81, false, kBlack, 0.04);
-  drawText(Form("Batch %s (ORNL)", gReader->GetTrayStrings()->at(4).substr(0,6).c_str()), 0.63, 0.81, false, kBlack, 0.04);
+  double right_text_margin = gPad->GetRightMargin() - (n_trays <= lim_trays)*0.01;
+  double left_text_margin = gPad->GetLeftMargin() - (n_trays <= lim_trays)*0.05;
+  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",           left_text_margin, 0.91, false, kBlack, 0.04);
+  drawText("#bf{ePIC} Test Stand",                                left_text_margin, 0.955, false, kBlack, 0.045);
+  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),        1.0-right_text_margin, 0.95, true, kBlack, 0.045);
+  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]),   1.0-right_text_margin, 0.905, true, kBlack, 0.035);
   
   
   // Legend for the lines marking tray average, test sets
-  TLegend* line_legend = new TLegend(0.15, 0.315 + leg_extra_space, 0.5, 0.55 + leg_extra_space);
+  TLegend* line_legend = new TLegend(first_x_margin + 0.02, 0.05, first_x_margin + plot_window_size_x * 5.0/n_trays - 0.02, 0.27);
   line_legend->SetLineWidth(0);
   line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
   line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
   line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
-//  line_legend->Draw();
+  line_legend->Draw();
   
-  gCanvas_solo->SaveAs(Form("../plots/batch_plots/batch_Vbr_trayavg%s.pdf",string_tempcorr_short[flag_run_at_25_celcius]));
+  // Second panel -- difference against nominal
+  cpads[0][1]->cd();
+  hist_diffnominal_Vpeak->Draw("b p e1 x0 same");
+  hist_diffnominal_Vbreakdown->Draw("b p e1 x0 same");
+  
+  gCanvas_double->SaveAs(Form("../plots/batch_plots/batch_Vbr_trayavg%s.pdf",string_tempcorr_short[flag_run_at_25_celcius]));
   
   delete hist_indexed_Vpeak_tray;
   delete hist_indexed_Vbreakdown_tray;
+  delete hist_indexed_Vbreakdown_nominal;
   
 }// End of sipm_batch_summary_sheet::makeIndexedTray
 

@@ -1,0 +1,27 @@
+# Enter SiPM tray numbers to process in batch
+# Followed by the batch nominal voltage given by Hamamatsu
+# This value is printed on the external packaging
+# These are compared against the measured results
+#
+# Comments can be made using the '#' character
+
+$START
+250717-1301 42.00
+250717-1302 42.00
+250717-1303 42.00
+250717-1304 42.00
+250717-1305 42.00
+250821-1301 42.00
+250821-1302 42.00
+250821-1303 42.00
+250821-1304 42.00
+250821-1305 42.00
+250911-0801 41.50
+250911-0802 41.50
+250911-1506 42.20
+250911-1606 42.30
+250911-1607 42.30
+251016-0901 41.60
+251016-1206 41.90
+251016-1207 41.90
+251016-1806 42.50
