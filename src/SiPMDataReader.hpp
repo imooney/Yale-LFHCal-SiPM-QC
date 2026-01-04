@@ -577,7 +577,7 @@ public:
         row_local->at(flattened_index) = crow;
         col_local->at(flattened_index) = ccol;
         
-        // Message is everything before this which may contain underscores
+        // Measurement message is everything before this which may contain underscores
         if (first_line) {
           int n_to_subtract =  4 + (crow / 10 >= 1) + (ccol / 10 >= 1);
           current_data->tray_note = entry.substr(0, entry.size() - n_to_subtract);

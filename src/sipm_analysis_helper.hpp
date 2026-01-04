@@ -26,10 +26,13 @@ float                         getAvgFromVectorPointer(std::vector<float>* vec);
 
 // Small Analysis Subroutines: Counting/Tallying
 int                           countSiPMsAllTrays();
+int                           countValidSiPMs(int tray_index);
 int                           countOutliersVpeak(int tray_index,
-                                                 bool flag_run_at_25_celcius = true);
+                                                 bool flag_run_at_25_celcius = true,
+                                                 float extra_tolerance = 0);
 int                           countOutliersVbreakdown(int tray_index,
-                                                      bool flag_run_at_25_celcius = true);
+                                                      bool flag_run_at_25_celcius = true,
+                                                      float extra_tolerance = 0);
 int                           countDarkCurrentOverLimitAllTrays(float limit);
 
 // Small Analysis Subroutines: Averaging
@@ -85,6 +88,19 @@ int countSiPMsAllTrays() {
   }return count_SiPM;
 }// End of sipm_analysis_helper::countSiPMsAllTrays
 
+// Count the number of SiPMs available in a given tray
+// Useful in case the number of SiPMs in a tray isn't 460
+int countValidSiPMs(int tray_index) {
+  if (!checkReader()) return 0;
+  if (tray_index < 0 || tray_index >= gReader->GetTrayStrings()->size()) return 0;
+  
+  int count_SiPM = 0;
+  for (std::vector<float>::iterator it = gReader->GetIV()->at(tray_index)->IV_Vpeak->begin();
+       it != gReader->GetIV()->at(tray_index)->IV_Vpeak->end(); ++it) {
+    if (*it == -999) continue; // -999: failed measurement or missing SiPM
+    ++count_SiPM;
+  }return count_SiPM;
+}// End of sipm_analysis_helper::countValidSiPMs
 
 
 // Compute the average V_peak (IV curve) for a single tray in gReader
@@ -96,7 +112,7 @@ int countSiPMsAllTrays() {
 // temperature is not under good control (SiPMs are very temperature sensative)
 //
 // Use input tray index -1 to average ALL available data.
-int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius) {
+int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius, float extra_tolerance) {
   if (tray_index < -1 || tray_index >= gReader->GetIV()->size()) {
     std::cerr << "Warning in <sipm_analysis_helper::countOutliersVpeak>: Invalid index given. Default input -1 (all data) will be used" << std::endl;
     tray_index = -1;
@@ -116,19 +132,27 @@ int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius) {
   else
     V_avg = getAvgVpeak(tray_index, flag_run_at_25_celcius);
   
+  // Use quadrature sum if desired
+  double V_outlier;
+  if (use_quadrature_sum_for_syst_error)
+    V_outlier = std::sqrt(declare_Vbd_outlier_range * declare_Vbd_outlier_range 
+                          + extra_tolerance*extra_tolerance);
+  else
+    V_outlier = declare_Vbd_outlier_range + extra_tolerance;
+  
   // Begin tallying outliers against the chosen average
   IV_data* tray_to_analyze = gReader->GetIV()->at(tray_index);
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak_25C->begin();
          it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) {
       
-      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
+      if (std::fabs(*it - V_avg) >= V_outlier) ++count_outliers;
     }// End of loop over 25C-corrected IV data
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak->begin();
          it != tray_to_analyze->IV_Vpeak->end(); ++it) {
       
-      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
+      if (std::fabs(*it - V_avg) >= V_outlier) ++count_outliers;
     }// End of loop over raw IV data
   }return count_outliers;
 }// End of sipm_analysis_helper::countOutliersVpeak
@@ -143,7 +167,7 @@ int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius) {
 // temperature is not under good control (SiPMs are very temperature sensative)
 //
 // Use input tray index -1 to average ALL available data.
-int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
+int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius, float extra_tolerance) {
   if (tray_index < -1 || tray_index >= gReader->GetSPS()->size()) {
     std::cerr << "Warning in <sipm_analysis_helper::countOutliersVbreakdown>: Invalid index. Default input -1 (all data) will be used" << std::endl;
     tray_index = -1;
@@ -163,19 +187,27 @@ int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
   else
     V_avg = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
   
+  // Use quadrature sum if desired
+  double V_outlier;
+  if (use_quadrature_sum_for_syst_error)
+    V_outlier = std::sqrt(declare_Vbd_outlier_range * declare_Vbd_outlier_range
+                          + extra_tolerance*extra_tolerance);
+  else
+    V_outlier = declare_Vbd_outlier_range + extra_tolerance;
+  
   // Begin tallying outliers against the chosen average
   SPS_data* tray_to_analyze = gReader->GetSPS()->at(tray_index);
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
          it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
       
-      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
+      if (std::fabs(*it - V_avg) >= V_outlier) ++count_outliers;
     }// End of loop over 25C-corrected SPS data
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
          it != tray_to_analyze->SPS_Vbd->end(); ++it) {
       
-      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
+      if (std::fabs(*it - V_avg) >= V_outlier) ++count_outliers;
     }// End of loop over raw SPS data
   }return count_outliers;
 }// End of sipm_analysis_helper::countOutliersVpeak

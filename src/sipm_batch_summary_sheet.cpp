@@ -15,10 +15,6 @@
 
 //========================================================================== Global Variables
 
-// flags to control some options in analysis
-bool flag_use_all_trays_for_averages = false;       // Use all available trays' data to compute averages (Recommended ONLY when all trays are similar)
-// TODO make class variable, I was silly and didn't think I would use this as much as I do...
-
 // Some helpful label strings
 const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected to 25C","Temperature corrected to 25C"};
 const char string_tempcorr_short[2][10] = {"","_25C"};
@@ -33,12 +29,6 @@ double voltplot_limits_static[2] = {37.15, 38.8};
 double diffplot_limits_static[2] = {-0.48, 0.48};
 double darkcurr_limits[2] = {0, 35};
 
-
-// TODO refine color pallette
-Int_t plot_colors[3] = {
-  kViolet+1, kOrange+1, kRed+2
-};
-
 // TODO make plotter class??? Or at least consider it...
 
 //========================================================================== Forward declarations
@@ -49,7 +39,8 @@ void makeHist_SPS_Vbreakdown(bool flag_run_at_25_celcius = true);
 
 // Indexed plots to display test data over a tray/for all trays
 void makeIndexSeries(bool flag_run_at_25_celcius = true);
-void makeIndexedTray(bool flag_run_at_25_celcius);
+void makeIndexedTray(bool flag_run_at_25_celcius = true);
+void makeIndexedOutliers(bool flag_run_at_25_celcius = true);
 
 // Heat maps of test results for SiPM tray, cassette test location
 void makeTrayMapVpeak(bool flag_run_at_25_celcius = true);
@@ -120,8 +111,9 @@ void sipm_batch_summary_sheet() {
 //  gReader->WriteCompressedFile(2);
 //  gReader->WriteCompressedFile(3);
   
+  // Plots with a summary of all trays to date
   makeIndexedTray(true);
-  
+  makeIndexedOutliers(true);
 }
 
 
@@ -133,6 +125,43 @@ void sipm_batch_summary_sheet() {
 //
 // TODO return TObjectArray for summary sheet
 void makeHist_IV_Vpeak(bool flag_run_at_25_celcius) {
+  
+  // Set up canvas
+  gCanvas_solo->Clear();
+  gCanvas_solo->SetCanvasSize(800, 600);
+  gPad->SetLeftMargin(0.1);
+  gPad->SetRightMargin(0.03);
+  gPad->SetTicks(1,1);
+  gPad->SetTopMargin(0.1);
+  
+  // Iterate over all available data
+  const int n_trays = gReader->GetIV()->size();
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    std::string c_tray_string = gReader->GetTrayStrings()->at(i_tray);
+    
+    // Initialize histograms
+//    TH1D* hist_IV = new TH1D(Form("hist_IV_%s",c_tray_string.c_str()),
+//                             ";V_{bd} [V];Count of SiPMs",
+//                             )
+    
+    
+    
+    
+    // plot histograms
+    
+    //save histograms
+    
+    
+  }// End of loop over trays
+  
+  return;
+}
+
+// Construct histograms of IV V_breakdown for the trays in storage
+// Accesses data via global pointers in the header file
+//
+// TODO return TObjectArray for summary sheet
+void makeHist_IV_Vbreakdown(bool flag_run_at_25_celcius) {
   
   // Make histograms
   
@@ -253,8 +282,7 @@ void makeHist_DarkCurrent() {
 // TODO return TObjectArray for summary sheet
 void makeIndexSeries(bool flag_run_at_25_celcius) {
   
-  // TODO handle SPS/IV not same number of trays
-  
+  // Set up canvas
   gCanvas_solo->Clear();
   gCanvas_solo->SetCanvasSize(1500, 600);
   gCanvas_solo->cd();
@@ -367,8 +395,10 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     if (flag_run_at_25_celcius) leg_extra_space = 0.04;
     TLegend* vbd_legend = new TLegend(0.635, 0.36 + leg_extra_space, 0.90, 0.51 + leg_extra_space);
     vbd_legend->SetLineWidth(0);
-    vbd_legend->AddEntry(hist_indexed_Vpeak, "IV V_{bd} (also called V_{peak})", "p");
-    vbd_legend->AddEntry(hist_indexed_Vbreakdown, "SPS V_{bd}", "p");
+    vbd_legend->AddEntry(hist_indexed_Vpeak,       Form("IV V_{bd} #kern[0.3]{(#color[2]{%i} outliers)}",
+                                                        countOutliersVpeak(i_tray, flag_run_at_25_celcius)), "p");
+    vbd_legend->AddEntry(hist_indexed_Vbreakdown,  Form("SPS V_{bd} #kern[0.1]{(#color[2]{%i} outliers)}",
+                                                        countOutliersVbreakdown(i_tray, flag_run_at_25_celcius)), "p");
     vbd_legend->Draw();
     
     // Legend for the lines marking tray average, test sets
@@ -430,7 +460,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   gPad->SetRightMargin(0.03*aspect_ratio);
   gPad->SetLeftMargin(0.15-0.04*aspect_ratio);
   gPad->SetTopMargin(0.11);
-  gPad->SetBottomMargin(0);
+  gPad->SetBottomMargin(0.005);
   double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
   
   // Set up secondary pad: 300+40*n x 250
@@ -438,7 +468,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   gPad->SetTicks(1,1);
   gPad->SetRightMargin(cpads[0][0]->GetRightMargin());
   gPad->SetLeftMargin(cpads[0][0]->GetLeftMargin());
-  gPad->SetTopMargin(0);
+  gPad->SetTopMargin(0.01);
   if (n_trays > lim_trays) gPad->SetBottomMargin(2*0.11);
   else                     gPad->SetBottomMargin(2*0.09);
 
@@ -493,7 +523,7 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
 
     hist_indexed_Vbreakdown_tray->SetBinContent(i_tray + 1, getAvgVbreakdown(i_fill, flag_run_at_25_celcius));
     hist_indexed_Vbreakdown_tray->SetBinError(i_tray + 1, getStdevVbreakdown(i_fill, flag_run_at_25_celcius));
-  }
+  }// End of hist filling
   
   // Gather nominal data reported by Hamamatsu, stored in separate file
   std::ifstream nominal_file("../tray_nominal_data.txt");
@@ -694,6 +724,275 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   delete hist_indexed_Vbreakdown_nominal;
   
 }// End of sipm_batch_summary_sheet::makeIndexedTray
+
+
+// Make a summary plot of the number of outliers in each tray
+// with and without systematic errors on the setup (should be found from
+// detailed systematic analysis in systematic_analysis_summary.cc)
+void makeIndexedOutliers(bool flag_run_at_25_celcius) {
+  
+  // Todo: 
+  // lines for avg in batch
+  // legends with info about sigma_syst
+  // offset bar chart position
+  
+  const int n_trays = gReader->GetIV()->size();
+  const int lim_trays = 8; // threshold below which to reformat the plot for few trays
+  
+  // Input values from systematic analysis (in V)
+  float syst_error_results[2][2] = {
+    {0.006943, 0.016606}, // Not temperature corrected
+    {0.002184, 0.016333}  // Temperature corrected to 25C
+  };
+  
+  // Set up canvas dynamically based on the number of trays
+  gCanvas_double->cd();
+  gCanvas_double->Clear();
+  gCanvas_double->SetCanvasSize(300+40*n_trays, 800);
+  cpads.clear();
+  cpads.push_back(std::vector<TPad*>());
+  cpads[0].push_back(buildPad("index_tray_0", 0, 0.5, 1, 1));
+  cpads[0].push_back(buildPad("index_tray_1", 0, 0, 1, 0.5));
+  
+  // Set up main pad: 300+40*n x 500
+  cpads[0][0]->cd();
+  const float aspect_ratio = static_cast<float>(300+40*n_trays)/400.;
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.03*aspect_ratio);
+  gPad->SetLeftMargin(0.15-0.04*aspect_ratio);
+  gPad->SetTopMargin(0.11);
+  gPad->SetBottomMargin(0.005);
+  double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
+  
+  // Set up secondary pad: 300+40*n x 250
+  cpads[0][1]->cd();
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(cpads[0][0]->GetRightMargin());
+  gPad->SetLeftMargin(cpads[0][0]->GetLeftMargin());
+  gPad->SetTopMargin(0.01);
+  if (n_trays > lim_trays) gPad->SetBottomMargin(1.5*0.11);
+  else                     gPad->SetBottomMargin(1.5*0.09);
+  
+  // Initialize Histograms
+  char plus_types[2][10] = {"+","#oplus"};
+  TH1F* hist_outliers_Vpeak = new TH1F("hist_outliers_Vpeak",
+                                       ";Hamamatsu Tray Number;Outliership #pm50 mV [%]",
+                                       n_trays, 0, n_trays);
+  TH1F* hist_outliers_Vbreakdown = new TH1F("hist_outliers_Vbreakdown",
+                                            ";Hamamatsu Tray Number;Outliership #pm50 mV [%]",
+                                            n_trays, 0, n_trays);
+  TH1F* hist_outliers_syst_Vpeak = new TH1F("hist_outliers_syst_Vpeak",
+                                            Form(";Hamamatsu Tray Number;Outliership #pm(50 %s #sigma_{syst}) mV [%%]",
+                                                 plus_types[use_quadrature_sum_for_syst_error]),
+                                            n_trays, 0, n_trays);
+  TH1F* hist_outliers_syst_Vbreakdown = new TH1F("hist_outliers_syst_Vbreakdown",
+                                                 Form(";Hamamatsu Tray Number;Outliership #pm(50 %s #sigma_{syst}) mV [%%]",
+                                                      plus_types[use_quadrature_sum_for_syst_error]),
+                                                 n_trays, 0, n_trays);
+  
+  // Alphabetize, separate by batch
+  int tray_reshuffle_index[n_trays];
+  for (int i = 0; i < n_trays; ++i) tray_reshuffle_index[i] = i;
+  std::string ref_string;
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    ref_string = gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]);
+    for (int j_tray = i_tray + 1; j_tray < n_trays; ++j_tray) {
+      if (ref_string.compare(gReader->GetTrayStrings()->at(tray_reshuffle_index[j_tray])) > 0) {
+        ref_string = gReader->GetTrayStrings()->at(tray_reshuffle_index[j_tray]);
+        
+        // index swap necessary to ensure that the same tray isn't repeated
+        int temp = tray_reshuffle_index[i_tray];
+        tray_reshuffle_index[i_tray] = tray_reshuffle_index[j_tray];
+        tray_reshuffle_index[j_tray] = temp;
+      }
+    }// End of next element finding
+    
+    // Assign to reshuffled list
+    ref_string = gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]);
+  }// End of alphabetize/tray sort
+  
+  // Gather avg data for tray measurements and add to histogram
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    int i_fill = tray_reshuffle_index[i_tray]; //sorted index
+    hist_outliers_Vpeak->GetXaxis()->SetBinLabel(i_tray + 1, gReader->GetTrayStrings()->at(i_fill).c_str());
+    hist_outliers_syst_Vpeak->GetXaxis()->SetBinLabel(i_tray + 1, gReader->GetTrayStrings()->at(i_fill).c_str());
+    
+    // could handle errors more dynamically... Maybe use SDOM on mean to find stat error by looking at means to different outliers?
+    
+    hist_outliers_Vpeak->SetBinContent(i_tray + 1, (static_cast<double>(countOutliersVpeak(i_fill, flag_run_at_25_celcius)) /
+                                                    countValidSiPMs(i_fill) )*100);
+    hist_outliers_Vpeak->SetBinError(i_tray + 1, 0.1);
+    hist_outliers_Vbreakdown->SetBinContent(i_tray + 1, (static_cast<double>(countOutliersVbreakdown(i_fill, flag_run_at_25_celcius)) /
+                                                         countValidSiPMs(i_fill) )*100);
+    hist_outliers_Vbreakdown->SetBinError(i_tray + 1, 0.1);
+    
+    // + extra tolerance for systematic errors (defined above in this method)
+    hist_outliers_syst_Vpeak->SetBinContent(i_tray + 1, (static_cast<double>(countOutliersVpeak(i_fill, flag_run_at_25_celcius,
+                                                                                                syst_error_results[flag_run_at_25_celcius][0])) /
+                                                         countValidSiPMs(i_fill) )*100);
+    hist_outliers_syst_Vpeak->SetBinError(i_tray + 1, 0.1);
+    hist_outliers_syst_Vbreakdown->SetBinContent(i_tray + 1, (static_cast<double>(countOutliersVbreakdown(i_fill, flag_run_at_25_celcius,
+                                                                                                          syst_error_results[flag_run_at_25_celcius][1])) /
+                                                              countValidSiPMs(i_fill) )*100);
+    hist_outliers_syst_Vbreakdown->SetBinError(i_tray + 1, 0.1);
+  }// End of hist filling
+  
+  // Format histograms
+  cpads[0][0]->cd();
+  double plotlim_outliers[2] = {0, 17};
+  if (n_trays > lim_trays) hist_outliers_Vpeak->GetXaxis()->SetTitleOffset(1.40);
+  hist_outliers_Vpeak->GetYaxis()->SetRangeUser(plotlim_outliers[0], plotlim_outliers[1]);
+  hist_outliers_Vpeak->GetYaxis()->SetTitleOffset(0.6 + 0.8/aspect_ratio);
+  hist_outliers_Vpeak->GetYaxis()->SetTitleOffset((0.6 + 0.8/aspect_ratio)/1.5);
+  hist_outliers_Vpeak->GetYaxis()->SetTitleSize(1.25*hist_outliers_Vpeak->GetYaxis()->GetTitleSize());
+  hist_outliers_Vpeak->GetYaxis()->SetLabelSize(1.25*hist_outliers_Vpeak->GetYaxis()->GetLabelSize());
+  hist_outliers_Vpeak->SetLineColor(plot_colors[0]);
+  hist_outliers_Vpeak->SetLineWidth(2);
+  hist_outliers_Vpeak->SetFillColorAlpha(plot_colors[0],.1);
+  hist_outliers_Vpeak->SetMarkerColor(plot_colors[0]);
+  hist_outliers_Vpeak->SetMarkerStyle(20);
+  hist_outliers_Vpeak->SetMarkerSize(1.0 + 1.0/aspect_ratio);
+  hist_outliers_Vpeak->SetBarWidth(0.4);
+  hist_outliers_Vpeak->SetBarOffset(0.1);
+  hist_outliers_Vpeak->Draw("hist b p0 e x0");
+  
+  hist_outliers_Vbreakdown->SetLineColor(plot_colors[1]);
+  hist_outliers_Vbreakdown->SetLineWidth(2);
+  hist_outliers_Vbreakdown->SetFillColorAlpha(plot_colors[1],.1);
+  hist_outliers_Vbreakdown->SetMarkerColor(plot_colors[1]);
+  hist_outliers_Vbreakdown->SetMarkerStyle(21);
+  hist_outliers_Vbreakdown->SetMarkerSize(1.0 + 1.0/aspect_ratio);
+  hist_outliers_Vbreakdown->SetBarWidth(0.4);
+  hist_outliers_Vbreakdown->SetBarOffset(0.5);
+  
+  cpads[0][1]->cd();
+  if (n_trays > lim_trays) hist_outliers_syst_Vpeak->GetXaxis()->SetTitleOffset(1.40);
+  hist_outliers_syst_Vpeak->GetYaxis()->SetRangeUser(plotlim_outliers[0], plotlim_outliers[1]);
+  hist_outliers_syst_Vpeak->GetYaxis()->SetTitleOffset((0.6 + 0.8/aspect_ratio)/1.5);
+  hist_outliers_syst_Vpeak->GetXaxis()->SetTitleSize(1.5*hist_outliers_syst_Vpeak->GetXaxis()->GetTitleSize());
+  hist_outliers_syst_Vpeak->GetXaxis()->SetLabelSize(1.5*hist_outliers_syst_Vpeak->GetXaxis()->GetLabelSize());
+  hist_outliers_syst_Vpeak->GetYaxis()->SetTitleSize(1.25*hist_outliers_syst_Vpeak->GetYaxis()->GetTitleSize());
+  hist_outliers_syst_Vpeak->GetYaxis()->SetLabelSize(1.25*hist_outliers_syst_Vpeak->GetYaxis()->GetLabelSize());
+  hist_outliers_syst_Vpeak->SetLineColor(plot_colors_alt[0]);
+  hist_outliers_syst_Vpeak->SetLineWidth(2);
+  hist_outliers_syst_Vpeak->SetFillColorAlpha(plot_colors_alt[0],.1);
+  hist_outliers_syst_Vpeak->SetMarkerColor(plot_colors_alt[0]);
+  hist_outliers_syst_Vpeak->SetMarkerStyle(20);
+  hist_outliers_syst_Vpeak->SetMarkerSize(1.0 + 1.0/aspect_ratio);
+  hist_outliers_syst_Vpeak->SetBarWidth(0.4);
+  hist_outliers_syst_Vpeak->SetBarOffset(0.1);
+  hist_outliers_syst_Vpeak->Draw("hist b p0 e x0");
+  
+  hist_outliers_syst_Vbreakdown->SetLineColor(plot_colors_alt[1]);
+  hist_outliers_syst_Vbreakdown->SetLineWidth(2);
+  hist_outliers_syst_Vbreakdown->SetFillColorAlpha(plot_colors_alt[1],.1);
+  hist_outliers_syst_Vbreakdown->SetMarkerColor(plot_colors_alt[1]);
+  hist_outliers_syst_Vbreakdown->SetMarkerStyle(21);
+  hist_outliers_syst_Vbreakdown->SetMarkerSize(1.0 + 1.0/aspect_ratio);
+  hist_outliers_syst_Vbreakdown->SetBarWidth(0.4);
+  hist_outliers_syst_Vbreakdown->SetBarOffset(0.5);
+  
+  // Draw reference averaged +/- 50 MV lines, average over all trays
+  double avg_voltages[2];
+  avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
+  avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
+  
+  // TObjects for drawing
+  TLine* avg_line = new TLine();
+  TLine* dev_line = new TLine();
+  
+  // Average line: V_peak (IV)
+  cpads[0][0]->cd();
+  avg_line->SetLineColor(kBlack);
+  avg_line->DrawLine(0, avg_voltages[0], n_trays, avg_voltages[0]);
+  dev_line->SetLineColor(kGray+2);
+  dev_line->SetLineStyle(7);
+//  dev_line->DrawLine(0, avg_voltages[0]+0.05, n_trays, avg_voltages[0]+0.05);
+//  dev_line->DrawLine(0, avg_voltages[0]-0.05, n_trays, avg_voltages[0]-0.05);
+  
+  // Average line: V_breakdown (SPS)
+//  avg_line->DrawLine(0, avg_voltages[1], n_trays, avg_voltages[1]);
+//  dev_line->DrawLine(0, avg_voltages[1]+0.05, n_trays, avg_voltages[1]+0.05);
+//  dev_line->DrawLine(0, avg_voltages[1]-0.05, n_trays, avg_voltages[1]-0.05);
+  
+  // SiPM batch delimeter lines, dynamic to the input data
+  TLine* batch_line = new TLine();
+  batch_line->SetLineColor(kGray+1);
+  batch_line->SetLineStyle(6);
+  std::string last_batch;
+  float start_of_batch = 0.5;
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    std::stringstream traystream(gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]));
+    if (i_tray == 0) {getline(traystream, last_batch, '-'); continue;}
+    
+    std::string next_batch;
+    getline(traystream, next_batch, '-');
+    if (last_batch.compare(next_batch) != 0 || i_tray == n_trays - 1) {
+      // draw new batch delimiter
+      if (last_batch.compare(next_batch) != 0) {
+        cpads[0][1]->cd();
+        batch_line->DrawLine(i_tray, plotlim_outliers[0], i_tray, plotlim_outliers[1]);
+        cpads[0][0]->cd();
+        batch_line->DrawLine(i_tray, plotlim_outliers[0], i_tray, plotlim_outliers[1]);
+      }
+      
+      // Label the batch on the plot
+      double batch_text_x = gPad->GetLeftMargin() + plot_window_size_x * static_cast<float>(start_of_batch)/n_trays + 0.01;
+      drawText(Form("Batch %s", last_batch.c_str()), batch_text_x, 0.81, false, kBlack, 0.0375);
+      if (last_batch.compare("250717") == 0) drawText("(ORNL)", batch_text_x, 0.77, false, kBlack, 0.0375);
+      
+      // continue to next batch
+      last_batch = next_batch;
+      start_of_batch = i_tray;
+    }
+  }// End of batch delimiter lines
+  
+  // Finish first panel -- raw outliers against margin 50mV
+  // assure points sit on top of lines
+  cpads[0][0]->cd();
+//  hist_outliers_Vpeak->Draw("b p e x0 same");
+  hist_outliers_Vbreakdown->Draw("hist b p0 e x0 same");
+  
+  // Legend for labeling the two V_breakdown measurement types
+  double first_x_margin = gPad->GetLeftMargin() + plot_window_size_x * 5.0/n_trays;
+  TLegend* vbd_legend = new TLegend(0.15, 0.05, first_x_margin - 0.02, 0.27);
+  vbd_legend->SetLineWidth(0);
+  vbd_legend->AddEntry(hist_outliers_Vpeak, "IV V_{bd} (also called V_{peak})", "p");
+  vbd_legend->AddEntry(hist_outliers_Vbreakdown, "SPS V_{bd}", "p");
+//  vbd_legend->Draw();
+  
+  // Draw some text giving info on the setup
+  double right_text_margin = gPad->GetRightMargin() - (n_trays <= lim_trays)*0.01;
+  double left_text_margin = gPad->GetLeftMargin() - (n_trays <= lim_trays)*0.05;
+  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",           left_text_margin, 0.91, false, kBlack, 0.04);
+  drawText("#bf{ePIC} Test Stand",                                left_text_margin, 0.955, false, kBlack, 0.045);
+  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),        1.0-right_text_margin, 0.95, true, kBlack, 0.045);
+  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]),   1.0-right_text_margin, 0.905, true, kBlack, 0.035);
+  
+  
+  // Legend for the lines marking tray average, test sets
+  TLegend* line_legend = new TLegend(first_x_margin + 0.02, 0.05, first_x_margin + plot_window_size_x * 5.0/n_trays - 0.02, 0.27);
+  line_legend->SetLineWidth(0);
+  line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
+  line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
+  line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
+//  line_legend->Draw();
+  
+  // Second panel -- outliers including extra tolerance for systematic errors
+  cpads[0][1]->cd();
+//  hist_outliers_syst_Vpeak->Draw("b p e x0 same");
+  hist_outliers_syst_Vbreakdown->Draw("hist b p0 e x0 same");
+  
+  char string_quadsum_short[2][10] = {"_dirsum","_quadsum"};
+  gCanvas_double->SaveAs(Form("../plots/batch_plots/batch_Vbr_outliers%s%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              string_quadsum_short[use_quadrature_sum_for_syst_error]));
+  
+  delete hist_outliers_Vpeak;
+  delete hist_outliers_Vbreakdown;
+  delete hist_outliers_syst_Vpeak;
+  delete hist_outliers_syst_Vbreakdown;
+}// End of sipm_batch_summary_sheet::makeIndexedOutliers
 
 //========================================================================== Solo plot generating Macros: SiPM Tray/Test Mappings
 

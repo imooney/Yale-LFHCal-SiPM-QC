@@ -56,14 +56,6 @@ double darkcurr_limits[2] = {0, 35};
 
 
 
-// TODO refine color pallette
-Int_t plot_colors[3] = {
-  kViolet+1, kOrange+1, kRed+1
-};
-Int_t plot_colors_alt[3] = {
-  kViolet+3, kOrange+2, kRed+2
-};
-
 // TODO make plotter class??? Or at least consider it...
 
 //========================================================================== Forward declarations
@@ -82,6 +74,9 @@ void makeCycleScan();
 
 // Operating Voltage V_op
 void makeOperatingVoltageScan();
+
+// Surface Imperfections
+void makeSurfaceImperfectionCorrelation();
 
 //========================================================================== Macro Main
 
@@ -1857,3 +1852,9 @@ void makeOperatingVoltageScan() {
   }// End of SiPM plot construction loop
   return;
 }// End of systematic_analysis_summary::makeOperatingVoltageScan
+
+
+//========================================================================== Surface Imperfection Systematics
+
+
+

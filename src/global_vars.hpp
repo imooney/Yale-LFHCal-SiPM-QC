@@ -26,6 +26,7 @@ const char Hamamatsu_SiPM_Code[20] = "S14160-1315PS";
 
 // Variables for allowed Q/A Ranges
 const double declare_Vbd_outlier_range = 0.050; // +/- 50mV range around average
+const bool use_quadrature_sum_for_syst_error = true;
 
 // Fixed array info variables
 const int NROW = 20;
@@ -39,11 +40,22 @@ const float sipm_cassette_separation_cm = 1.0; // TODO measure actual board, the
 // Variables for I/O handling
 const char batch_data_file[20] = "../batch_data.txt";
 
+// flags to control some options in analysis
+bool flag_use_all_trays_for_averages = false;       // Use all available trays' data to compute averages (Recommended ONLY when all trays are similar)
 
 // Variables to control histogram/plot ranges
 const int nbin_temp_grad = 19;
 //const int nbin_temp_grad = 39;
 const double range_temp_grad[2] = {-0.4, 0.4};
+
+// TODO refine color pallette
+Int_t plot_colors[3] = {
+  kViolet+1, kOrange+1, kRed+2
+};
+
+Int_t plot_colors_alt[3] = {
+  kViolet+3, kOrange+2, kRed+2
+};
 
 
 #endif /* global_vars_h */
