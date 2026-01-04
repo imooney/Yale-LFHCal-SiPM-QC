@@ -87,74 +87,98 @@ int countSiPMsAllTrays() {
 
 
 
-// Compute the average V_peak (IV curve) for a gReader->GetIV()en tray
-// The computation can be done at the recorded temperatures (which vary)
-// or under the extrapolation to 25 degrees Celcius.
+// Compute the average V_peak (IV curve) for a single tray in gReader
+// The IV data must be set by reading in a file to the SiPMDataReader class.
 //
-// Input tray index -1 to average ALL available data
-int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
-  if (tray_index < -1 || tray_index >= gReader->GetSPS()->size()) {
-    std::cerr << "Warning in <sipm_batch_summary_sheet_hpp::getAvgVbreakdown>: Invalid index. Default input -1 (all data) will be used" << std::endl;
+// The computation can be done at the recorded temperatures (raw data)
+// or under the correction to nominal 25 degrees Celcius.
+// Note that the non-temperature corrected values may vary widely if the test
+// temperature is not under good control (SiPMs are very temperature sensative)
+//
+// Use input tray index -1 to average ALL available data.
+int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius) {
+  if (tray_index < -1 || tray_index >= gReader->GetIV()->size()) {
+    std::cerr << "Warning in <sipm_analysis_helper::countOutliersVpeak>: Invalid index given. Default input -1 (all data) will be used" << std::endl;
     tray_index = -1;
   }
   
+  // Check for input -1, average all trays if so via recursion on this method.
   int count_outliers = 0;
-  if (tray_index == -1) {// Recursive approach--slow??
+  if (tray_index == -1) {// Recursion at depth 1--gather each tray and add them together
+    for (int i = 0; i < gReader->GetIV()->size(); ++i) count_outliers += countOutliersVbreakdown(i);
+    return count_outliers;
+  }
+  
+  // Compare against the average +/- 50mv
+  double V_avg;
+  if (flag_use_all_trays_for_averages) 
+    V_avg = getAvgVpeakAllTrays(flag_run_at_25_celcius);
+  else
+    V_avg = getAvgVpeak(tray_index, flag_run_at_25_celcius);
+  
+  // Begin tallying outliers against the chosen average
+  IV_data* tray_to_analyze = gReader->GetIV()->at(tray_index);
+  if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
+    for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak_25C->begin();
+         it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) {
+      
+      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
+    }// End of loop over 25C-corrected IV data
+  } else {// At recoreded temperature
+    for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak->begin();
+         it != tray_to_analyze->IV_Vpeak->end(); ++it) {
+      
+      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
+    }// End of loop over raw IV data
+  }return count_outliers;
+}// End of sipm_analysis_helper::countOutliersVpeak
+
+
+// Compute the average V_breakdown (Single Photon Spectra) for a single tray in gReader
+// The SPS data must be set by reading in a file to the SiPMDataReader class.
+//
+// The computation can be done at the recorded temperatures (raw data)
+// or under the correction to nominal 25 degrees Celcius.
+// Note that the non-temperature corrected values may vary widely if the test
+// temperature is not under good control (SiPMs are very temperature sensative)
+//
+// Use input tray index -1 to average ALL available data.
+int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
+  if (tray_index < -1 || tray_index >= gReader->GetSPS()->size()) {
+    std::cerr << "Warning in <sipm_analysis_helper::countOutliersVbreakdown>: Invalid index. Default input -1 (all data) will be used" << std::endl;
+    tray_index = -1;
+  }
+  
+  // Check for input -1, average all trays if so via recursion on this method.
+  int count_outliers = 0;
+  if (tray_index == -1) {// Recursion at depth 1--gather each tray and add them together
     for (int i = 0; i < gReader->GetSPS()->size(); ++i) count_outliers += countOutliersVbreakdown(i);
     return count_outliers;
   }
   
   // Compare against the average +/- 50mv
-  double V_avg = getAvgVbreakdownAllTrays(flag_run_at_25_celcius);
-//  double V_avg = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
+  double V_avg;
+  if (flag_use_all_trays_for_averages)
+    V_avg = getAvgVbreakdownAllTrays(flag_run_at_25_celcius);
+  else
+    V_avg = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
   
+  // Begin tallying outliers against the chosen average
   SPS_data* tray_to_analyze = gReader->GetSPS()->at(tray_index);
-  double avg_Vbreakdown = 0;
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
          it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
+      
       if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
-      avg_Vbreakdown += *it;
-    }
-    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size());
+    }// End of loop over 25C-corrected SPS data
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
-         it != tray_to_analyze->SPS_Vbd->end(); ++it)
+         it != tray_to_analyze->SPS_Vbd->end(); ++it) {
+      
       if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
-    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size());
+    }// End of loop over raw SPS data
   }return count_outliers;
 }// End of sipm_analysis_helper::countOutliersVpeak
-
-
-// TODO complete
-// Compute the average V_breakdown (SPS curve) for a given tray
-// The computation can be done at the recorded temperatures (which vary)
-// or under the extrapolation to 25 degrees Celcius.
-//int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
-//  if (tray_index < 0 || tray_index >=  gReader->GetSPS()->size()) {
-//    std::cerr << "Error in <sipm_batch_summary_sheet_hpp::getAvgVbreakdown>: Invalid index." << std::endl;
-//    return -1;
-//  }
-//
-//  // Compare against the average +/- 50mv
-//  double V_avg = getAvgVbreakdown(tray_index, flag_run_at_25_celcius);
-//  int count_outliers = 0;
-//  SPS_data* tray_to_analyze = gReader->GetSPS()->at(tray_index);
-//  double avg_Vbreakdown = 0;
-//  if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
-//    for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
-//         it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
-//      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
-//      avg_Vbreakdown += *it;
-//    }
-//    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size());
-//  } else {// At recoreded temperature
-//    for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
-//         it != tray_to_analyze->SPS_Vbd->end(); ++it)
-//      if (std::fabs(*it - V_avg) >= declare_Vbd_outlier_range) ++count_outliers;
-//    avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size());
-//  }return count_outliers;
-//}// End of sipm_analysis_helper::countOutliersVbreakdown
 
 
 
