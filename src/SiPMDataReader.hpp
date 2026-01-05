@@ -289,16 +289,17 @@ public:
   
   // *---------------- Setters/Getters
   
-  void                          GetDataDebrecen()     {GetBatchStrings();}
-  void                          GetDataORNL()         {return;} // TODO
+  void                          GetDataDebrecen()     {GetBatchStrings();}                    // Assumes data is formatted as in Debrecen test stand
+  void                          GetDataORNL()         {return;} // Not implemented -- no data from ORNL provided as of now.
   std::vector<IV_data*>*        GetIV()               {return this->IV_internal;}
   std::vector<SPS_data*>*       GetSPS()              {return this->SPS_internal;}
   std::vector<std::string>*     GetTrayStrings()      {return this->tray_strings;}
   
-  void                          SetSystematicMode()   {this->read_for_systematics = true;} // should be run before running GetDataDebrecen
-  void                          SetFlatTrayString()   {this->has_subscript_results = false;} // do not automatically require "-results" in tray strings
-  void                          SetDefTrayString()    {this->has_subscript_results = true;} // do require "-results" in tray strings (typical convention)
-  void                          SetVerbose(bool v)    {this->verbose_mode = v;}
+  void                          SetSystematicMode()   {this->read_for_systematics = true;}    // should be run before running GetDataDebrecen
+  void                          SetFlatTrayString()   {this->has_subscript_results = false;}  // do not automatically require "-results" in tray strings
+  void                          SetDefTrayString()    {this->has_subscript_results = true;}   // do require "-results" in tray strings (typical convention)
+  void                          SetVerbose()          {this->verbose_mode = true;}            // Print some small information about accessed data
+  void                          SetQuiet()            {this->verbose_mode = false;}           // Print essentially nothing to the terminal
   void                          SetPrintIV()          {this->print_IV_all_SiPMs = true;}
   void                          SetPrintSPS()         {this->print_SPS_all_SiPMs = true;}
 

@@ -94,6 +94,7 @@ void systematic_analysis_summary() {
   
   // Initialize canvases
   gStyle->SetOptStat(0);
+  gStyle->SetPalette(TH2_palette);
   
   gCanvas_solo = new TCanvas();
   gCanvas_surfacecorr = new TCanvas();
@@ -1884,7 +1885,7 @@ void makeSurfaceImperfectionCorrelation() {
   gCanvas_surfacecorr->cd();
   gCanvas_surfacecorr->Clear();
   gCanvas_surfacecorr->SetCanvasSize(800, 600);
-  surfacecorr_pads = divideFlush(gPad, 3, 2, 0.1, 0.1, 0.1, 0.1);
+  surfacecorr_pads = divideFlush(gPad, 3, 2, 0.06, 0.06, 0.1, 0.1);
   
   // Set up custom binning for the histogram
   const int nbins_x = 9;
@@ -1892,7 +1893,7 @@ void makeSurfaceImperfectionCorrelation() {
   double binedge_surface_area[nbins_x + 1] = {
     0.05, 1, 7, 13, 23, 47, 69, 89, 101, 500
   };
-  const int nbins_y = 11;
+  const int nbins_y = 12;
   double hist_range_y[2] = {-0.06, 0.06};
   double binedge_deviation[nbins_y + 1];
   for (int i = 0; i <= nbins_y; ++i) binedge_deviation[i] = hist_range_y[0] + i*(hist_range_y[1] - hist_range_y[0])/nbins_y;
@@ -2129,22 +2130,60 @@ void makeSurfaceImperfectionCorrelation() {
   }
   
   surfacecorr_pads[0][0]->cd();
+  hist_surface_corr_IV_scratch->GetYaxis()->SetTitleOffset(1.9);
+  hist_surface_corr_IV_scratch->GetYaxis()->SetTitleSize(0.04);
   hist_surface_corr_IV_scratch->Draw("col");
+  drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   
   surfacecorr_pads[0][1]->cd();
   hist_surface_corr_IV_bubble->Draw("col");
+  drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.065);
   
   surfacecorr_pads[0][2]->cd();
+  hist_surface_corr_IV_debris->GetZaxis()->SetTitleOffset(0.9);
+  hist_surface_corr_IV_debris->GetZaxis()->SetTitleSize(0.05);
   hist_surface_corr_IV_debris->Draw("colz");
+  drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   
   surfacecorr_pads[1][0]->cd();
+  hist_surface_corr_PS_scratch->GetYaxis()->SetTitleOffset(1.9);
+  hist_surface_corr_PS_scratch->GetYaxis()->SetTitleSize(0.04);
+  hist_surface_corr_PS_scratch->GetXaxis()->SetTitleOffset(0.9);
+  hist_surface_corr_PS_scratch->GetXaxis()->SetTitleSize(0.05);
   hist_surface_corr_PS_scratch->Draw("col");
+  drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
+  drawText("Surface Scratch", 0.25, 0.04, false, kRed+1, 0.08);
   
   surfacecorr_pads[1][1]->cd();
+  hist_surface_corr_PS_bubble->GetXaxis()->SetTitleOffset(0.75);
+  hist_surface_corr_PS_bubble->GetXaxis()->SetTitleSize(0.06);
+  hist_surface_corr_PS_bubble->GetXaxis()->SetLabelSize(0.04);
+  hist_surface_corr_PS_bubble->GetXaxis()->SetLabelOffset(0.0005);
   hist_surface_corr_PS_bubble->Draw("col");
+  drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.065);
+  drawText("Surface Bubble", 0.20, 0.04, false, kRed+1, 0.092);
   
   surfacecorr_pads[1][2]->cd();
+  hist_surface_corr_PS_debris->GetXaxis()->SetTitleOffset(0.9);
+  hist_surface_corr_PS_debris->GetXaxis()->SetTitleSize(0.05);
+  hist_surface_corr_PS_debris->GetZaxis()->SetTitleOffset(0.9);
+  hist_surface_corr_PS_debris->GetZaxis()->SetTitleSize(0.05);
   hist_surface_corr_PS_debris->Draw("colz");
+  drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
+  drawText("Obstructing Debris", 0.15, 0.04, false, kRed+1, 0.08);
+  
+  
+  // Draw some informative text about the setup
+  gCanvas_surfacecorr->cd();
+  TLatex* top_tex[6];
+  top_tex[0] = drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",                 0.05, 0.91, false, kBlack, 0.04);
+  top_tex[1] = drawText("#bf{ePIC} Test Stand",                                      0.05, 0.955, false, kBlack, 0.045);
+  top_tex[2] = drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),              0.95, 0.95, true, kBlack, 0.045);
+//  top_tex[3] = drawText(Form("Tray %s SiPM (%i,%i)",
+//                             gReader->GetIV()->at(cycle_tray_indices[0])->tray_note.substr(0,11).c_str(),
+//                             sipm_row[i_sipm],sipm_col[i_sipm]),                   1-gPad->GetRightMargin(), 0.91, true, kBlack, 0.035);
+  top_tex[4] = drawText("Systematics: Imperfection Correlation",          0.95, 0.91, true, kBlack, 0.035);
+//  top_tex[5] = drawText(Form("%i Total Tests During Cooldown",ntotal_scan),          gPad->GetLeftMargin() + 0.05, 0.78, false, kBlack, 0.04);
   
   gCanvas_surfacecorr->SaveAs("../plots/systematic_plots/surface_imperfections/imperfection_correlation.pdf");
   
@@ -2175,55 +2214,124 @@ void makeSurfaceImperfectionCorrelation() {
   hist_surface_cont_PS_debris->Scale(1./hist_surface_cont_PS_debris->Integral(), "width");
   
   // Format plots
-  hist_nonobstructed_IV->GetYaxis()->SetRangeUser(0.1, 27);
-  hist_nonobstructed_PS->GetYaxis()->SetRangeUser(0.1, 27);
+  double proj_plot_range[2] = {0.1, 29};
   hist_nonobstructed_IV->SetLineColor(kBlack);
   hist_nonobstructed_PS->SetLineColor(kBlack);
   
   hist_surface_proj_IV_scratch->SetLineColor(plot_colors[0]);
-  hist_surface_cont_IV_scratch->SetLineColor(plot_colors_alt[0]);
+  hist_surface_cont_IV_scratch->SetLineColor(plot_colors_alt[0] + 3);
   hist_surface_proj_PS_scratch->SetLineColor(plot_colors[1]);
   hist_surface_cont_PS_scratch->SetLineColor(plot_colors_alt[1]);
+  hist_surface_proj_IV_scratch->SetMarkerColor(plot_colors[0]);
+  hist_surface_cont_IV_scratch->SetMarkerColor(plot_colors_alt[0] + 3);
+  hist_surface_proj_PS_scratch->SetMarkerColor(plot_colors[1]);
+  hist_surface_cont_PS_scratch->SetMarkerColor(plot_colors_alt[1]);
+  hist_surface_proj_IV_scratch->SetMarkerStyle(20);
+  hist_surface_cont_IV_scratch->SetMarkerStyle(20);
+  hist_surface_proj_PS_scratch->SetMarkerStyle(21);
+  hist_surface_cont_PS_scratch->SetMarkerStyle(21);
   
   hist_surface_proj_IV_bubble->SetLineColor(plot_colors[0]);
-  hist_surface_cont_IV_bubble->SetLineColor(plot_colors_alt[0]);
+  hist_surface_cont_IV_bubble->SetLineColor(plot_colors_alt[0] + 3);
   hist_surface_proj_PS_bubble->SetLineColor(plot_colors[1]);
   hist_surface_cont_PS_bubble->SetLineColor(plot_colors_alt[1]);
+  hist_surface_proj_IV_bubble->SetMarkerColor(plot_colors[0]);
+  hist_surface_cont_IV_bubble->SetMarkerColor(plot_colors_alt[0] + 3);
+  hist_surface_proj_PS_bubble->SetMarkerColor(plot_colors[1]);
+  hist_surface_cont_PS_bubble->SetMarkerColor(plot_colors_alt[1]);
+  hist_surface_proj_IV_bubble->SetMarkerStyle(20);
+  hist_surface_cont_IV_bubble->SetMarkerStyle(20);
+  hist_surface_proj_PS_bubble->SetMarkerStyle(21);
+  hist_surface_cont_PS_bubble->SetMarkerStyle(21);
   
   hist_surface_proj_IV_debris->SetLineColor(plot_colors[0]);
-  hist_surface_cont_IV_debris->SetLineColor(plot_colors_alt[0]);
+  hist_surface_cont_IV_debris->SetLineColor(plot_colors_alt[0] + 3);
   hist_surface_proj_PS_debris->SetLineColor(plot_colors[1]);
   hist_surface_cont_PS_debris->SetLineColor(plot_colors_alt[1]);
+  hist_surface_proj_IV_debris->SetMarkerColor(plot_colors[0]);
+  hist_surface_cont_IV_debris->SetMarkerColor(plot_colors_alt[0] + 3);
+  hist_surface_proj_PS_debris->SetMarkerColor(plot_colors[1]);
+  hist_surface_cont_PS_debris->SetMarkerColor(plot_colors_alt[1]);
+  hist_surface_proj_IV_debris->SetMarkerStyle(20);
+  hist_surface_cont_IV_debris->SetMarkerStyle(20);
+  hist_surface_proj_PS_debris->SetMarkerStyle(21);
+  hist_surface_cont_PS_debris->SetMarkerStyle(21);
   
   surfacecorr_pads[0][0]->cd();
-  hist_nonobstructed_IV->Draw("hist");
-  hist_surface_proj_IV_scratch->Draw("hist same");
+  hist_surface_proj_IV_scratch->GetYaxis()->SetRangeUser(proj_plot_range[0], proj_plot_range[1]);
+  hist_surface_proj_IV_scratch->GetYaxis()->SetTitleOffset(1.9);
+  hist_surface_proj_IV_scratch->GetYaxis()->SetTitleSize(0.04);
+  hist_surface_proj_IV_scratch->Draw("hist p");
   hist_surface_cont_IV_scratch->Draw("hist same");
+  hist_nonobstructed_IV->Draw("hist same");
+  drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
+  
+  TLegend* leg_IV = new TLegend(0.2, 0.55, 0.65, 0.75);
+  leg_IV->SetLineWidth(0);
+  leg_IV->AddEntry(hist_surface_proj_IV_scratch, "Pixels Obstructed", "p");
+  leg_IV->AddEntry(hist_surface_cont_IV_scratch, "Pixels Unobstructed", "l");
+  leg_IV->AddEntry(hist_nonobstructed_IV, "No Surface Defect", "l");
+  leg_IV->Draw();
   
   surfacecorr_pads[0][1]->cd();
-  hist_nonobstructed_IV->Draw("hist");
-  hist_surface_proj_IV_bubble->Draw("hist same");
+  hist_surface_proj_IV_bubble->GetYaxis()->SetRangeUser(proj_plot_range[0], proj_plot_range[1]);
+  hist_surface_proj_IV_bubble->Draw("hist p");
   hist_surface_cont_IV_bubble->Draw("hist same");
+  hist_nonobstructed_IV->Draw("hist same");
+  drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   
   surfacecorr_pads[0][2]->cd();
-  hist_nonobstructed_IV->Draw("hist");
-  hist_surface_proj_IV_debris->Draw("hist same");
+  hist_surface_proj_IV_debris->GetYaxis()->SetRangeUser(proj_plot_range[0], proj_plot_range[1]);
+  hist_surface_proj_IV_debris->Draw("hist p");
   hist_surface_cont_IV_debris->Draw("hist same");
+  hist_nonobstructed_IV->Draw("hist same");
+  drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   
   surfacecorr_pads[1][0]->cd();
-  hist_nonobstructed_PS->Draw("hist");
-  hist_surface_proj_PS_scratch->Draw("hist same");
+  hist_surface_proj_PS_scratch->GetYaxis()->SetRangeUser(proj_plot_range[0], proj_plot_range[1]);
+  hist_surface_proj_PS_scratch->GetYaxis()->SetTitleOffset(1.9);
+  hist_surface_proj_PS_scratch->GetYaxis()->SetTitleSize(0.04);
+  hist_surface_proj_PS_scratch->GetXaxis()->SetTitleOffset(1.05);
+  hist_surface_proj_PS_scratch->GetXaxis()->SetTitleSize(0.04);
+  hist_surface_proj_PS_scratch->Draw("hist p");
   hist_surface_cont_PS_scratch->Draw("hist same");
+  hist_nonobstructed_PS->Draw("hist same");
+  drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
+  drawText("Surface Scratch", 0.25, 0.04, false, kRed+1, 0.08);
+  
+  TLegend* leg_PS = new TLegend(0.2, 0.75, 0.65, 0.95);
+  leg_PS->SetLineWidth(0);
+  leg_PS->AddEntry(hist_surface_proj_PS_scratch, "Pixels Obstructed", "p");
+  leg_PS->AddEntry(hist_surface_cont_PS_scratch, "Pixels Unobstructed", "l");
+  leg_PS->AddEntry(hist_nonobstructed_PS, "No Surface Defect", "l");
+  leg_PS->Draw();
   
   surfacecorr_pads[1][1]->cd();
-  hist_nonobstructed_PS->Draw("hist");
-  hist_surface_proj_PS_bubble->Draw("hist same");
+  hist_surface_proj_PS_bubble->GetYaxis()->SetRangeUser(proj_plot_range[0], proj_plot_range[1]);
+  hist_surface_proj_PS_bubble->GetXaxis()->SetTitleOffset(0.9);
+  hist_surface_proj_PS_bubble->GetXaxis()->SetTitleSize(0.05);
+  hist_surface_proj_PS_bubble->GetXaxis()->SetLabelSize(0.04);
+  hist_surface_proj_PS_bubble->GetXaxis()->SetLabelOffset(0.0005);
+  hist_surface_proj_PS_bubble->Draw("hist p");
   hist_surface_cont_PS_bubble->Draw("hist same");
+  hist_nonobstructed_PS->Draw("hist same");
+  drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.065);
+  drawText("Surface Bubble", 0.20, 0.04, false, kRed+1, 0.092);
   
   surfacecorr_pads[1][2]->cd();
-  hist_nonobstructed_PS->Draw("hist");
-  hist_surface_proj_PS_debris->Draw("hist same");
+  hist_surface_proj_PS_debris->GetYaxis()->SetRangeUser(proj_plot_range[0], proj_plot_range[1]);
+  hist_surface_proj_PS_debris->GetXaxis()->SetTitleOffset(1.1);
+  hist_surface_proj_PS_debris->GetXaxis()->SetTitleSize(0.04);
+  hist_surface_proj_PS_debris->Draw("hist p");
   hist_surface_cont_PS_debris->Draw("hist same");
+  hist_nonobstructed_PS->Draw("hist same");
+  drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
+  drawText("Obstructing Debris", 0.15, 0.04, false, kRed+1, 0.08);
+  
+  gCanvas_surfacecorr->cd();
+  delete top_tex[4];
+  top_tex[5] = drawText("Systematics: Imperfection Projection",          0.95, 0.91, true, kBlack, 0.035);
+  
   
   gCanvas_surfacecorr->SaveAs("../plots/systematic_plots/surface_imperfections/imperfection_projection.pdf");
   

@@ -26,7 +26,7 @@ const char Hamamatsu_SiPM_Code[20] = "S14160-1315PS";
 
 // Variables for allowed Q/A Ranges
 const double declare_Vbd_outlier_range = 0.050; // +/- 50mV range around average
-const bool use_quadrature_sum_for_syst_error = true;
+const bool use_quadrature_sum_for_syst_error = false;
 
 // Fixed array info variables
 const int NROW = 20;
@@ -48,7 +48,8 @@ const int nbin_temp_grad = 19;
 //const int nbin_temp_grad = 39;
 const double range_temp_grad[2] = {-0.4, 0.4};
 
-// TODO refine color pallette
+// TODO refine color palette
+Int_t TH2_palette = kBird;
 Int_t plot_colors[3] = {
   kViolet+1, kOrange+1, kRed+2
 };
