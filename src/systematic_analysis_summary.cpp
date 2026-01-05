@@ -15,7 +15,6 @@
 //========================================================================== Global Variables
 
 // flags to control some options in analysis
-bool flag_use_all_trays_for_averages = false;       // Use all available trays' data to compute averages (Recommended ONLY when all trays are similar)
 bool global_flag_run_at_25_celcius = false;
 // TODO make class variable, I was silly and didn't think I would use this as much as I do...
 bool global_flag_adjust_IV_tempcorr = false;
@@ -29,9 +28,14 @@ const char string_tempcorr_short[2][10] = {"","_25C"};
 
 // Global plot objects
 TCanvas* gCanvas_solo;
+
 TCanvas* gCanvas_cassetteplot;
 TPad* cassette_pad;
 std::vector<std::vector<TPad*> > cassette_pads;
+
+TCanvas* gCanvas_surfacecorr;
+TPad* surfacecorr_pad;
+std::vector<std::vector<TPad*> > surfacecorr_pads;
 
 // Global data collectors
 const int nbins_residualhist = 21;
@@ -92,6 +96,7 @@ void systematic_analysis_summary() {
   gStyle->SetOptStat(0);
   
   gCanvas_solo = new TCanvas();
+  gCanvas_surfacecorr = new TCanvas();
   
   // *-- Analysis tasks: Reproducibility
   
@@ -128,7 +133,7 @@ void systematic_analysis_summary() {
   // *-- Analysis tasks: Operating Voltage
   
   // Read IV and SPS data for vop scan
-  reader->SetFlatTrayString(); // Don't require parent directories end in -results
+  reader->SetFlatTrayString(); // Don't require parent directories end in "-results"
   reader->AppendFile("../batch_data_vopscan.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
@@ -136,7 +141,7 @@ void systematic_analysis_summary() {
   makeOperatingVoltageScan();
   
   // *-- Analysis tasks: Temperature
-  reader->SetFlatTrayString(); // Don't require parent directories end in -results
+  reader->SetFlatTrayString(); // Don't require parent directories end in "-results"
   reader->AppendFile("../batch_data_tempscan.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
@@ -144,7 +149,7 @@ void systematic_analysis_summary() {
   makeTemperatureScan();
   
   // *-- Analysis tasks: Cycle scan
-  reader->SetFlatTrayString(); // Don't require parent directories end in -results
+  reader->SetFlatTrayString(); // Don't require parent directories end in "-results"
   reader->AppendFile("../batch_data_cyclescan.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
@@ -156,6 +161,15 @@ void systematic_analysis_summary() {
   // Make a temperature difference hist with all available data
   // (to search for a potential temperature gradient in the test box)
   makeTemperatureGradientHist();
+  
+  // *-- Analysis tasks: Surface Imperfection study
+  // Do SiPMs with obstructed surfaces behave more poorly?
+  global_flag_run_at_25_celcius = true;
+  reader->SetDefTrayString(); // return to requiring "-results" for normal data
+  reader->ReadFile("../batch_data.txt"); // read in only real test results
+  reader->ReadDataIV();
+  reader->ReadDataSPS();
+  makeSurfaceImperfectionCorrelation();
   
 }// End of systematic_analysis_summary::main
 
@@ -943,7 +957,7 @@ void makeTemperatureScan() {
 // We do this by constructing a histogram of temperature differences
 // from the back temperature sensors to the forward ones in the same row.
 void makeTemperatureGradientHist() {
-  bool debug_temp_diff = true;
+  bool debug_temp_diff = false;
   const int temp_sensor_location[32] = {
     0, 0, 4, 4,
     0, 0, 4, 4,
@@ -1857,4 +1871,362 @@ void makeOperatingVoltageScan() {
 //========================================================================== Surface Imperfection Systematics
 
 
+// Make a plot of surface imperfection area vs measured deviation from tray average
+// This allows us to explore whether surface imperfections in the SiPMs are
+// correlated with performance in V_br or other tests
+void makeSurfaceImperfectionCorrelation() {
+  std::cout << "Beginning surface imperfection correlation..." << std::endl;
+  bool debug_surface_imperfection_correlation = false;
+  
+  // TODO should be renormalized to tray average deviation?
+  
+  // Set up plotting canvas
+  gCanvas_surfacecorr->cd();
+  gCanvas_surfacecorr->Clear();
+  gCanvas_surfacecorr->SetCanvasSize(800, 600);
+  surfacecorr_pads = divideFlush(gPad, 3, 2, 0.1, 0.1, 0.1, 0.1);
+  
+  // Set up custom binning for the histogram
+  const int nbins_x = 9;
+  double hist_range_x[2] = {0.05, 500};
+  double binedge_surface_area[nbins_x + 1] = {
+    0.05, 1, 7, 13, 23, 47, 69, 89, 101, 500
+  };
+  const int nbins_y = 11;
+  double hist_range_y[2] = {-0.06, 0.06};
+  double binedge_deviation[nbins_y + 1];
+  for (int i = 0; i <= nbins_y; ++i) binedge_deviation[i] = hist_range_y[0] + i*(hist_range_y[1] - hist_range_y[0])/nbins_y;
+  
+  // Set up histograms for each type of surface defect: scratch, bubble, debris
+  TH2D* hist_surface_corr_IV_scratch = new TH2D("hist_surface_corr_IV_scratch",
+                                                ";Obstructed SiPM Pixels;Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];Count of SiPMs",
+                                                nbins_x, binedge_surface_area,
+                                                nbins_y, binedge_deviation);
+  TH2D* hist_surface_corr_IV_bubble = new TH2D("hist_surface_corr_IV_bubble",
+                                               ";Obstructed SiPM Pixels;Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];Count of SiPMs",
+                                               nbins_x, binedge_surface_area,
+                                               nbins_y, binedge_deviation);
+  TH2D* hist_surface_corr_IV_debris = new TH2D("hist_surface_corr_IV_debris",
+                                               ";Obstructed SiPM Pixels;Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];Count of SiPMs",
+                                               nbins_x, binedge_surface_area,
+                                               nbins_y, binedge_deviation);
+  TH2D* hist_surface_corr_PS_scratch = new TH2D("hist_surface_corr_PS_scratch",
+                                                ";Obstructed SiPM Pixels;Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];Count of SiPMs",
+                                                nbins_x, binedge_surface_area,
+                                                nbins_y, binedge_deviation);
+  TH2D* hist_surface_corr_PS_bubble = new TH2D("hist_surface_corr_PS_bubble",
+                                               ";Obstructed SiPM Pixels;Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];Count of SiPMs",
+                                               nbins_x, binedge_surface_area,
+                                               nbins_y, binedge_deviation);
+  TH2D* hist_surface_corr_PS_debris = new TH2D("hist_surface_corr_PS_debris",
+                                               ";Obstructed SiPM Pixels;Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];Count of SiPMs",
+                                               nbins_x, binedge_surface_area,
+                                               nbins_y, binedge_deviation);
+  
+  // 1D-projections onto the y-axis
+  TH1D* hist_surface_proj_IV_scratch = new TH1D("hist_surface_proj_IV_scratch",
+                                                ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                                nbins_y, binedge_deviation);
+  TH1D* hist_surface_proj_IV_bubble = new TH1D("hist_surface_proj_IV_bubble",
+                                               ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  TH1D* hist_surface_proj_IV_debris = new TH1D("hist_surface_proj_IV_debris",
+                                               ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  TH1D* hist_surface_proj_PS_scratch = new TH1D("hist_surface_proj_PS_scratch",
+                                                ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                                nbins_y, binedge_deviation);
+  TH1D* hist_surface_proj_PS_bubble = new TH1D("hist_surface_proj_PS_bubble",
+                                               ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  TH1D* hist_surface_proj_PS_debris = new TH1D("hist_surface_proj_PS_debris",
+                                               ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  
+  // 1D-projections onto the y-axis for control group: scratched but not on the surface
+  TH1D* hist_surface_cont_IV_scratch = new TH1D("hist_surface_cont_IV_scratch",
+                                                ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                                nbins_y, binedge_deviation);
+  TH1D* hist_surface_cont_IV_bubble = new TH1D("hist_surface_cont_IV_bubble",
+                                               ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  TH1D* hist_surface_cont_IV_debris = new TH1D("hist_surface_cont_IV_debris",
+                                               ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  TH1D* hist_surface_cont_PS_scratch = new TH1D("hist_surface_cont_PS_scratch",
+                                                ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                                nbins_y, binedge_deviation);
+  TH1D* hist_surface_cont_PS_bubble = new TH1D("hist_surface_cont_PS_bubble",
+                                               ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  TH1D* hist_surface_cont_PS_debris = new TH1D("hist_surface_cont_PS_debris",
+                                               ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                               nbins_y, binedge_deviation);
+  
+  // TH1D for nob-obstructed as extra control group
+  TH1D* hist_nonobstructed_IV = new TH1D("hist_nonobstructed_IV",
+                                         ";Deviation from tray average V_{IV br} - V_{IV br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                         nbins_y, binedge_deviation);
+  TH1D* hist_nonobstructed_PS = new TH1D("hist_nonobstructed_PS",
+                                         ";Deviation from tray average V_{SPS br} - V_{SPS br}^{Tray Avg} [V];dN^{SiPM}/d#DeltaV",
+                                         nbins_y, binedge_deviation);
+  
+  // Check for existing data about the current tray using stat struct
+  char dir_base[50] = "../data/obstructed-area";
+  struct stat check_dir;
+  if (stat(dir_base, &check_dir) != 0) {
+    // Failed to find base directory
+    std::cout << t_red << "ERROR" << t_def;
+    std::cout << " :: Could not find directory for data about obstructed area ";
+    std::cout << t_blu << dir_base << t_def << ". Please add the directory and relevant data." << std::endl;
+    return;
+  }// End of directory check
+  
+  
+  // Loop over all trays to gather data
+  int n_trays = gReader->GetTrayStrings()->size();
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    
+    
+    // Directory OK, check for current tray's file:
+    char subfile[100];
+    snprintf(subfile, 100, "%s/%s-area.txt",dir_base,gReader->GetTrayStrings()->at(i_tray).c_str());
+    struct stat check_file;
+    
+    // failed to find file within the directory, continue to next tray
+    if (stat(subfile, &check_file) != 0 || (check_file.st_mode & S_IFDIR)) continue;
+    
+    // Found a file! Print that we found it.
+    std::cout << "Data found for surface imperfections in tray ";
+    std::cout << t_grn << gReader->GetTrayStrings()->at(i_tray).c_str() << t_def << std::endl;
+    
+    // *-- Analyze the found file
+    std::cout << "i_tray = " << i_tray << std::endl;
+    double avg_IV_this_tray = getAvgVpeak(i_tray);
+    double avg_PS_this_tray = getAvgVbreakdown(i_tray);
+    
+    // Keep track of which SiPMs have area defects
+    bool has_defect[NROW][NCOL];
+    for (int i = 0; i < NROW*NCOL; ++i) has_defect[i/NCOL][i%NCOL] = false;
+    
+    // Append data to histograms
+    std::ifstream area_file(subfile);
+    std::string line;
+    while (getline(area_file, line)) {
+      std::stringstream linestream(line);
+      std::string entry;
+      int row, col;
+      double area;
+      
+      int info_index = 0;
+      while (getline(linestream, entry, ' ')) {
+        if (entry.size() == 0) continue; // repeated space
+        if (entry[0] == '#') break; // comment
+        
+        // Initial entries--row and column of the SiPM
+        if (info_index == 0) {
+          row = std::stoi(entry);
+          ++info_index;
+          continue;
+        } if (info_index == 1) {
+          col = std::stoi(entry);
+          ++info_index;
+          continue;
+        }// End of SiPM row, col
+        
+        // Remaining entries -- Info about the defects
+        // Each SiPM may have many defects
+        if (info_index % 2) { // odd : obstruction type
+          // Mark the current SiPM as having a defect
+          has_defect[row][col] = true;
+          
+          if (gReader->GetVbdTrayIndexIV(i_tray, row, col, global_flag_run_at_25_celcius) == -999) break; // no data for this SiPM--go to next line
+          
+          // Find the deviation for this SiPM from the data
+          double voltage_deviation_IV = gReader->GetVbdTrayIndexIV(i_tray, row, col, global_flag_run_at_25_celcius) - avg_IV_this_tray;
+          double voltage_deviation_PS = gReader->GetVbdTrayIndexSPS(i_tray, row, col, global_flag_run_at_25_celcius) - avg_PS_this_tray;
+          
+          if (debug_surface_imperfection_correlation) {
+            std::cout << "Check deviation for debug: (" << row  << ',' << col << ") [";
+            std::cout << NCOL*row + col << "] dIV = " << voltage_deviation_IV;
+            std::cout << ", dSPS = " << voltage_deviation_PS << std::endl;
+          }
+          
+          // Fill the relevant histogram
+          switch (entry[0]) {
+            case 's': // scratch
+              // TH2D
+              hist_surface_corr_IV_scratch->Fill(area, voltage_deviation_IV);
+              hist_surface_corr_PS_scratch->Fill(area, voltage_deviation_PS);
+              // y-projection, separate control group
+              if (area == 0.1) {
+                hist_surface_cont_IV_scratch->Fill(voltage_deviation_IV);
+                hist_surface_cont_PS_scratch->Fill(voltage_deviation_PS);
+              } else {
+                hist_surface_proj_IV_scratch->Fill(voltage_deviation_IV);
+                hist_surface_proj_PS_scratch->Fill(voltage_deviation_PS);
+              }break;
+            case 'b': // bubble/manufacturing defect
+              // TH2D
+              hist_surface_corr_IV_bubble->Fill(area, voltage_deviation_IV);
+              hist_surface_corr_PS_bubble->Fill(area, voltage_deviation_PS);
+              // y-projection, separate control group
+              if (area == 0.1) {
+                hist_surface_cont_IV_bubble->Fill(voltage_deviation_IV);
+                hist_surface_cont_PS_bubble->Fill(voltage_deviation_PS);
+              } else {
+                hist_surface_proj_IV_bubble->Fill(voltage_deviation_IV);
+                hist_surface_proj_PS_bubble->Fill(voltage_deviation_PS);
+              }break;
+            case 'd': // debris
+              // TH2D
+              hist_surface_corr_IV_debris->Fill(area, voltage_deviation_IV);
+              hist_surface_corr_PS_debris->Fill(area, voltage_deviation_PS);
+              // y-projection, separate control group
+              if (area == 0.1) {
+                hist_surface_cont_IV_debris->Fill(voltage_deviation_IV);
+                hist_surface_cont_PS_debris->Fill(voltage_deviation_PS);
+              } else {
+                hist_surface_proj_IV_debris->Fill(voltage_deviation_IV);
+                hist_surface_proj_PS_debris->Fill(voltage_deviation_PS);
+              }break;
+            default:
+              std::cout << t_red << "Warning" << t_def << " :: ";
+              std::cout << "Read surface imperfection type '";
+              std::cout << t_blu << entry[0]  << t_def << "' not recognized. Discarding entry." << std::endl;
+          }// End of hist type switch/fill
+        } else { // Even :: tells the quantity of SiPM pixels obstructed
+          if (entry[0] == 'c') { // Control group--defect does not obstruct any pixels
+            area = 0.1; // to fill the small bin in log space
+          } else area = std::stoi(entry);
+        }// End of data read conditionals
+        
+        ++info_index;
+      }// End of line read
+    }// End of file read
+    
+    // Add non-obstructed to the double-control
+    for (int row = 0; row < NROW; ++row) {
+      for (int col = 0; col < NCOL; ++col) {
+        if (gReader->GetVbdTrayIndexIV(i_tray, row, col, global_flag_run_at_25_celcius) == -999) continue; // no data for this SiPM--go to next line
+        if (has_defect[row][col]) continue; // non-obstructed only
+        
+        
+        double voltage_deviation_IV = gReader->GetVbdTrayIndexIV(i_tray, row, col, global_flag_run_at_25_celcius) - avg_IV_this_tray;
+        double voltage_deviation_PS = gReader->GetVbdTrayIndexSPS(i_tray, row, col, global_flag_run_at_25_celcius) - avg_PS_this_tray;
+        hist_nonobstructed_IV->Fill(voltage_deviation_IV);
+        hist_nonobstructed_PS->Fill(voltage_deviation_PS);
+      }
+    }// End of non-obstructed SiPM fill
+  }// End of tray loop
+  
+  
+  // Plot and print -- double differential correlation plots
+  for (int p = 0; p < 6; ++p) {
+    surfacecorr_pads[p/3][p%3]->cd();
+    gPad->SetLogx();
+    gPad->SetTicks(1,1);
+  }
+  
+  surfacecorr_pads[0][0]->cd();
+  hist_surface_corr_IV_scratch->Draw("col");
+  
+  surfacecorr_pads[0][1]->cd();
+  hist_surface_corr_IV_bubble->Draw("col");
+  
+  surfacecorr_pads[0][2]->cd();
+  hist_surface_corr_IV_debris->Draw("colz");
+  
+  surfacecorr_pads[1][0]->cd();
+  hist_surface_corr_PS_scratch->Draw("col");
+  
+  surfacecorr_pads[1][1]->cd();
+  hist_surface_corr_PS_bubble->Draw("col");
+  
+  surfacecorr_pads[1][2]->cd();
+  hist_surface_corr_PS_debris->Draw("colz");
+  
+  gCanvas_surfacecorr->SaveAs("../plots/systematic_plots/surface_imperfections/imperfection_correlation.pdf");
+  
+  
+  // Plot and print -- y-projections with separated control groups
+  for (int p = 0; p < 6; ++p) {
+    surfacecorr_pads[p/3][p%3]->cd();
+    gPad->SetLogx(0);
+  }
+  
+  // Scale all plots to unity
+  hist_nonobstructed_IV->Scale(1./hist_nonobstructed_IV->Integral(), "width");
+  hist_nonobstructed_PS->Scale(1./hist_nonobstructed_PS->Integral(), "width");
+  
+  hist_surface_proj_IV_scratch->Scale(1./hist_surface_proj_IV_scratch->Integral(), "width");
+  hist_surface_cont_IV_scratch->Scale(1./hist_surface_cont_IV_scratch->Integral(), "width");
+  hist_surface_proj_PS_scratch->Scale(1./hist_surface_proj_PS_scratch->Integral(), "width");
+  hist_surface_cont_PS_scratch->Scale(1./hist_surface_cont_PS_scratch->Integral(), "width");
+  
+  hist_surface_proj_IV_bubble->Scale(1./hist_surface_proj_IV_bubble->Integral(), "width");
+  hist_surface_cont_IV_bubble->Scale(1./hist_surface_cont_IV_bubble->Integral(), "width");
+  hist_surface_proj_PS_bubble->Scale(1./hist_surface_proj_PS_bubble->Integral(), "width");
+  hist_surface_cont_PS_bubble->Scale(1./hist_surface_cont_PS_bubble->Integral(), "width");
+  
+  hist_surface_proj_IV_debris->Scale(1./hist_surface_proj_IV_debris->Integral(), "width");
+  hist_surface_cont_IV_debris->Scale(1./hist_surface_cont_IV_debris->Integral(), "width");
+  hist_surface_proj_PS_debris->Scale(1./hist_surface_proj_PS_debris->Integral(), "width");
+  hist_surface_cont_PS_debris->Scale(1./hist_surface_cont_PS_debris->Integral(), "width");
+  
+  // Format plots
+  hist_nonobstructed_IV->GetYaxis()->SetRangeUser(0.1, 27);
+  hist_nonobstructed_PS->GetYaxis()->SetRangeUser(0.1, 27);
+  hist_nonobstructed_IV->SetLineColor(kBlack);
+  hist_nonobstructed_PS->SetLineColor(kBlack);
+  
+  hist_surface_proj_IV_scratch->SetLineColor(plot_colors[0]);
+  hist_surface_cont_IV_scratch->SetLineColor(plot_colors_alt[0]);
+  hist_surface_proj_PS_scratch->SetLineColor(plot_colors[1]);
+  hist_surface_cont_PS_scratch->SetLineColor(plot_colors_alt[1]);
+  
+  hist_surface_proj_IV_bubble->SetLineColor(plot_colors[0]);
+  hist_surface_cont_IV_bubble->SetLineColor(plot_colors_alt[0]);
+  hist_surface_proj_PS_bubble->SetLineColor(plot_colors[1]);
+  hist_surface_cont_PS_bubble->SetLineColor(plot_colors_alt[1]);
+  
+  hist_surface_proj_IV_debris->SetLineColor(plot_colors[0]);
+  hist_surface_cont_IV_debris->SetLineColor(plot_colors_alt[0]);
+  hist_surface_proj_PS_debris->SetLineColor(plot_colors[1]);
+  hist_surface_cont_PS_debris->SetLineColor(plot_colors_alt[1]);
+  
+  surfacecorr_pads[0][0]->cd();
+  hist_nonobstructed_IV->Draw("hist");
+  hist_surface_proj_IV_scratch->Draw("hist same");
+  hist_surface_cont_IV_scratch->Draw("hist same");
+  
+  surfacecorr_pads[0][1]->cd();
+  hist_nonobstructed_IV->Draw("hist");
+  hist_surface_proj_IV_bubble->Draw("hist same");
+  hist_surface_cont_IV_bubble->Draw("hist same");
+  
+  surfacecorr_pads[0][2]->cd();
+  hist_nonobstructed_IV->Draw("hist");
+  hist_surface_proj_IV_debris->Draw("hist same");
+  hist_surface_cont_IV_debris->Draw("hist same");
+  
+  surfacecorr_pads[1][0]->cd();
+  hist_nonobstructed_PS->Draw("hist");
+  hist_surface_proj_PS_scratch->Draw("hist same");
+  hist_surface_cont_PS_scratch->Draw("hist same");
+  
+  surfacecorr_pads[1][1]->cd();
+  hist_nonobstructed_PS->Draw("hist");
+  hist_surface_proj_PS_bubble->Draw("hist same");
+  hist_surface_cont_PS_bubble->Draw("hist same");
+  
+  surfacecorr_pads[1][2]->cd();
+  hist_nonobstructed_PS->Draw("hist");
+  hist_surface_proj_PS_debris->Draw("hist same");
+  hist_surface_cont_PS_debris->Draw("hist same");
+  
+  gCanvas_surfacecorr->SaveAs("../plots/systematic_plots/surface_imperfections/imperfection_projection.pdf");
+  
+  
+}// End of systematic_analysis_summary::makeSurfaceImperfectionCorrelation
 

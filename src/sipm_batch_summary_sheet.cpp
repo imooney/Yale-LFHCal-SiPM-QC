@@ -734,7 +734,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   // Todo: 
   // lines for avg in batch
   // legends with info about sigma_syst
-  // offset bar chart position
+  // Add bin for total outliership of all trays
   
   const int n_trays = gReader->GetIV()->size();
   const int lim_trays = 8; // threshold below which to reformat the plot for few trays

@@ -305,9 +305,9 @@ public:
   // *---------------- Dynamic/Interfacing Getters
   
   void ReadFile(const char* filename) {
-    this->tray_strings = new std::vector<std::string>();
-    this->IV_internal = new std::vector<struct IV_data*>();
-    this->SPS_internal = new std::vector<struct SPS_data*>();
+    this->tray_strings->clear();
+    this->IV_internal->clear();
+    this->SPS_internal->clear();
     
     this->batch_data_file = new std::string(filename);
     GetBatchStrings();
