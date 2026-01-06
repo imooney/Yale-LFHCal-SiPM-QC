@@ -2123,33 +2123,42 @@ void makeSurfaceImperfectionCorrelation() {
   
   
   // Plot and print -- double differential correlation plots
+  double max_all_TH2 = 0;
   for (int p = 0; p < 6; ++p) {
     surfacecorr_pads[p/3][p%3]->cd();
     gPad->SetLogx();
     gPad->SetTicks(1,1);
+    
+    // Find max in all hists to make sure all histograms have the same z-axis scale
+    if (hist_surface_corr_IV_scratch->GetMaximum() > max_all_TH2)
+      max_all_TH2 = hist_surface_corr_IV_scratch->GetMaximum();
   }
   
   surfacecorr_pads[0][0]->cd();
   hist_surface_corr_IV_scratch->GetYaxis()->SetTitleOffset(1.9);
   hist_surface_corr_IV_scratch->GetYaxis()->SetTitleSize(0.04);
+  hist_surface_corr_IV_scratch->GetZaxis()->SetRangeUser(0, max_all_TH2);
   hist_surface_corr_IV_scratch->Draw("col");
   drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   
   surfacecorr_pads[0][1]->cd();
+  hist_surface_corr_IV_bubble->GetZaxis()->SetRangeUser(0, max_all_TH2);
   hist_surface_corr_IV_bubble->Draw("col");
   drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.065);
   
   surfacecorr_pads[0][2]->cd();
   hist_surface_corr_IV_debris->GetZaxis()->SetTitleOffset(0.9);
   hist_surface_corr_IV_debris->GetZaxis()->SetTitleSize(0.05);
+  hist_surface_corr_IV_debris->GetZaxis()->SetRangeUser(0, max_all_TH2);
   hist_surface_corr_IV_debris->Draw("colz");
   drawText("IV", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   
   surfacecorr_pads[1][0]->cd();
-  hist_surface_corr_PS_scratch->GetYaxis()->SetTitleOffset(1.9);
-  hist_surface_corr_PS_scratch->GetYaxis()->SetTitleSize(0.04);
   hist_surface_corr_PS_scratch->GetXaxis()->SetTitleOffset(0.9);
   hist_surface_corr_PS_scratch->GetXaxis()->SetTitleSize(0.05);
+  hist_surface_corr_PS_scratch->GetYaxis()->SetTitleOffset(1.9);
+  hist_surface_corr_PS_scratch->GetYaxis()->SetTitleSize(0.04);
+  hist_surface_corr_PS_scratch->GetZaxis()->SetRangeUser(0, max_all_TH2);
   hist_surface_corr_PS_scratch->Draw("col");
   drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   drawText("Surface Scratch", 0.25, 0.04, false, kRed+1, 0.08);
@@ -2159,6 +2168,7 @@ void makeSurfaceImperfectionCorrelation() {
   hist_surface_corr_PS_bubble->GetXaxis()->SetTitleSize(0.06);
   hist_surface_corr_PS_bubble->GetXaxis()->SetLabelSize(0.04);
   hist_surface_corr_PS_bubble->GetXaxis()->SetLabelOffset(0.0005);
+  hist_surface_corr_PS_bubble->GetZaxis()->SetRangeUser(0, max_all_TH2);
   hist_surface_corr_PS_bubble->Draw("col");
   drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.065);
   drawText("Surface Bubble", 0.20, 0.04, false, kRed+1, 0.092);
@@ -2168,6 +2178,7 @@ void makeSurfaceImperfectionCorrelation() {
   hist_surface_corr_PS_debris->GetXaxis()->SetTitleSize(0.05);
   hist_surface_corr_PS_debris->GetZaxis()->SetTitleOffset(0.9);
   hist_surface_corr_PS_debris->GetZaxis()->SetTitleSize(0.05);
+  hist_surface_corr_PS_debris->GetZaxis()->SetRangeUser(0, max_all_TH2);
   hist_surface_corr_PS_debris->Draw("colz");
   drawText("SPS", 1. - gPad->GetRightMargin() - 0.05, 1. - gPad->GetTopMargin() - 0.08, true, kRed+1, 0.06);
   drawText("Obstructing Debris", 0.15, 0.04, false, kRed+1, 0.08);

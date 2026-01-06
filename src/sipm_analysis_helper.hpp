@@ -27,12 +27,19 @@ float                         getAvgFromVectorPointer(std::vector<float>* vec);
 // Small Analysis Subroutines: Counting/Tallying
 int                           countSiPMsAllTrays();
 int                           countValidSiPMs(int tray_index);
+int                           countValidSiPMsBatch(std::string batch_label);
 int                           countOutliersVpeak(int tray_index,
                                                  bool flag_run_at_25_celcius = true,
                                                  float extra_tolerance = 0);
 int                           countOutliersVbreakdown(int tray_index,
                                                       bool flag_run_at_25_celcius = true,
                                                       float extra_tolerance = 0);
+int                           countOutliersVpeakBatch(std::string batch_label,
+                                                      bool flag_run_at_25_celcius = true,
+                                                      float extra_tolerance = 0);
+int                           countOutliersVbreakdownBatch(std::string batch_label,
+                                                           bool flag_run_at_25_celcius = true,
+                                                           float extra_tolerance = 0);
 int                           countDarkCurrentOverLimitAllTrays(float limit);
 
 // Small Analysis Subroutines: Averaging
@@ -100,6 +107,24 @@ int countValidSiPMs(int tray_index) {
     if (*it == -999) continue; // -999: failed measurement or missing SiPM
     ++count_SiPM;
   }return count_SiPM;
+}// End of sipm_analysis_helper::countValidSiPMs
+
+// Count the number of valid SiPMsin a given batch of SiPMs
+// This considers trays with a substring "[batch label]" in the
+// tray string, i.e. "250821-1301" in batch "250821".
+int countValidSiPMsBatch(std::string batch_label) {
+  std::vector<std::string>* batch_strings = gReader->GetTrayStrings();
+  
+  int total_valid_sipm = 0;
+  int count = -1;
+  for (std::vector<std::string>::iterator it = batch_strings->begin(); it != batch_strings->end(); ++it) {
+    ++count;
+    
+    if (it->find(batch_label) == std::string::npos) continue;
+    
+    total_valid_sipm += countValidSiPMs(count);
+  }// End of string loop
+  return total_valid_sipm;
 }// End of sipm_analysis_helper::countValidSiPMs
 
 
@@ -210,7 +235,44 @@ int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius, float e
       if (std::fabs(*it - V_avg) >= V_outlier) ++count_outliers;
     }// End of loop over raw SPS data
   }return count_outliers;
-}// End of sipm_analysis_helper::countOutliersVpeak
+}// End of sipm_analysis_helper::countOutliersVbreakdown
+
+
+// Count the number of IV outliers for a set of trays in a batch
+// This considers trays with a substring "[batch label]" in the
+// tray string, i.e. "250821-1301" in batch "250821".
+int countOutliersVpeakBatch(std::string batch_label, bool flag_run_at_25_celcius, float extra_tolerance) {
+  std::vector<std::string>* batch_strings = gReader->GetTrayStrings();
+  
+  int total_outliers = 0;
+  int count = -1;
+  for (std::vector<std::string>::iterator it = batch_strings->begin(); it != batch_strings->end(); ++it) {
+    ++count;
+    
+    if (it->find(batch_label) == std::string::npos) continue;
+    
+    total_outliers += countOutliersVpeak(count, flag_run_at_25_celcius, extra_tolerance);
+  }// End of string loop
+  return total_outliers;
+}// End of sipm_analysis_helper::countOutliersVpeakBatch
+
+// Count the number of SPS outliers for a set of trays in a batch
+// This considers trays with a substring "[batch label]" in the
+// tray string, i.e. "250821-1301" in batch "250821".
+int countOutliersVbreakdownBatch(std::string batch_label, bool flag_run_at_25_celcius, float extra_tolerance) {
+  std::vector<std::string>* batch_strings = gReader->GetTrayStrings();
+  
+  int total_outliers = 0;
+  int count = -1;
+  for (std::vector<std::string>::iterator it = batch_strings->begin(); it != batch_strings->end(); ++it) {
+    ++count;
+    
+    if (it->find(batch_label) == std::string::npos) continue;
+    
+    total_outliers += countOutliersVbreakdown(count, flag_run_at_25_celcius, extra_tolerance);
+  }// End of string loop
+  return total_outliers;
+}// End of sipm_analysis_helper::countOutliersVbreakdownBatch
 
 
 

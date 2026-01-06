@@ -26,7 +26,8 @@ const char Hamamatsu_SiPM_Code[20] = "S14160-1315PS";
 
 // Variables for allowed Q/A Ranges
 const double declare_Vbd_outlier_range = 0.050; // +/- 50mV range around average
-const bool use_quadrature_sum_for_syst_error = false;
+const bool use_quadrature_sum_for_syst_error = true;
+const double contract_outlier_margin_percent = 5; // 5% outliers allowed by contract
 
 // Fixed array info variables
 const int NROW = 20;

@@ -839,7 +839,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   
   // Format histograms
   cpads[0][0]->cd();
-  double plotlim_outliers[2] = {0, 17};
+  double plotlim_outliers[2] = {0, 19};
   if (n_trays > lim_trays) hist_outliers_Vpeak->GetXaxis()->SetTitleOffset(1.40);
   hist_outliers_Vpeak->GetYaxis()->SetRangeUser(plotlim_outliers[0], plotlim_outliers[1]);
   hist_outliers_Vpeak->GetYaxis()->SetTitleOffset(0.6 + 0.8/aspect_ratio);
@@ -877,7 +877,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   hist_outliers_syst_Vpeak->SetLineWidth(2);
   hist_outliers_syst_Vpeak->SetFillColorAlpha(plot_colors_alt[0],.1);
   hist_outliers_syst_Vpeak->SetMarkerColor(plot_colors_alt[0]);
-  hist_outliers_syst_Vpeak->SetMarkerStyle(20);
+  hist_outliers_syst_Vpeak->SetMarkerStyle(53);
   hist_outliers_syst_Vpeak->SetMarkerSize(1.0 + 1.0/aspect_ratio);
   hist_outliers_syst_Vpeak->SetBarWidth(0.4);
   hist_outliers_syst_Vpeak->SetBarOffset(0.1);
@@ -887,7 +887,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   hist_outliers_syst_Vbreakdown->SetLineWidth(2);
   hist_outliers_syst_Vbreakdown->SetFillColorAlpha(plot_colors_alt[1],.1);
   hist_outliers_syst_Vbreakdown->SetMarkerColor(plot_colors_alt[1]);
-  hist_outliers_syst_Vbreakdown->SetMarkerStyle(21);
+  hist_outliers_syst_Vbreakdown->SetMarkerStyle(54);
   hist_outliers_syst_Vbreakdown->SetMarkerSize(1.0 + 1.0/aspect_ratio);
   hist_outliers_syst_Vbreakdown->SetBarWidth(0.4);
   hist_outliers_syst_Vbreakdown->SetBarOffset(0.5);
@@ -898,70 +898,130 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
   
   // TObjects for drawing
-  TLine* avg_line = new TLine();
-  TLine* dev_line = new TLine();
+  TLine* margin_line = new TLine();
+  TLine* batch_avg_line_IV = new TLine();
+  TLine* batch_avg_line_SPS = new TLine();
+  TLine* batch_avg_line_IV_corr = new TLine();
+  TLine* batch_avg_line_SPS_corr = new TLine();
   
-  // Average line: V_peak (IV)
+  // Line formatting
+  margin_line->SetLineColor(kBlack);
+  batch_avg_line_IV->SetLineColor(plot_colors[0]);
+  batch_avg_line_SPS->SetLineColor(plot_colors[1]);
+  batch_avg_line_IV->SetLineStyle(7);
+  batch_avg_line_SPS->SetLineStyle(3);
+  batch_avg_line_IV_corr->SetLineColor(plot_colors_alt[0]);
+  batch_avg_line_SPS_corr->SetLineColor(plot_colors_alt[1]);
+  batch_avg_line_IV_corr->SetLineStyle(7);
+  batch_avg_line_SPS_corr->SetLineStyle(3);
+  
+  // Allowed Margin/threshold for acceptance
   cpads[0][0]->cd();
-  avg_line->SetLineColor(kBlack);
-  avg_line->DrawLine(0, avg_voltages[0], n_trays, avg_voltages[0]);
-  dev_line->SetLineColor(kGray+2);
-  dev_line->SetLineStyle(7);
-//  dev_line->DrawLine(0, avg_voltages[0]+0.05, n_trays, avg_voltages[0]+0.05);
-//  dev_line->DrawLine(0, avg_voltages[0]-0.05, n_trays, avg_voltages[0]-0.05);
-  
-  // Average line: V_breakdown (SPS)
-//  avg_line->DrawLine(0, avg_voltages[1], n_trays, avg_voltages[1]);
-//  dev_line->DrawLine(0, avg_voltages[1]+0.05, n_trays, avg_voltages[1]+0.05);
-//  dev_line->DrawLine(0, avg_voltages[1]-0.05, n_trays, avg_voltages[1]-0.05);
+  margin_line->DrawLine(0, contract_outlier_margin_percent, n_trays, contract_outlier_margin_percent);
+  cpads[0][1]->cd();
+  margin_line->DrawLine(0, contract_outlier_margin_percent, n_trays, contract_outlier_margin_percent);
   
   // SiPM batch delimeter lines, dynamic to the input data
   TLine* batch_line = new TLine();
   batch_line->SetLineColor(kGray+1);
   batch_line->SetLineStyle(6);
-  std::string last_batch;
+  std::string last_batch, next_batch;
+  std::stringstream traystream;
   float start_of_batch = 0.5;
-  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
-    std::stringstream traystream(gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]));
-    if (i_tray == 0) {getline(traystream, last_batch, '-'); continue;}
+  for (int i_tray = 0; i_tray <= n_trays; ++i_tray) {
+     if (i_tray == n_trays) goto lastbatch;  // catch last batch and draw text, skipping check for strings
     
-    std::string next_batch;
+    // Check if next string denotes a new batch
+    traystream = std::stringstream(gReader->GetTrayStrings()->at(tray_reshuffle_index[i_tray]));
+    if (i_tray == 0) {getline(traystream, last_batch, '-'); continue;}
     getline(traystream, next_batch, '-');
-    if (last_batch.compare(next_batch) != 0 || i_tray == n_trays - 1) {
-      // draw new batch delimiter
-      if (last_batch.compare(next_batch) != 0) {
-        cpads[0][1]->cd();
-        batch_line->DrawLine(i_tray, plotlim_outliers[0], i_tray, plotlim_outliers[1]);
-        cpads[0][0]->cd();
-        batch_line->DrawLine(i_tray, plotlim_outliers[0], i_tray, plotlim_outliers[1]);
-      }
+    
+  lastbatch:
+    if (last_batch.compare(next_batch) != 0 || i_tray >= n_trays - 1) {
+      
+      // compute batch average
+      double avg_IV_this_batch = (static_cast<double>(countOutliersVpeakBatch(last_batch, flag_run_at_25_celcius, 0))
+                                  / countValidSiPMsBatch(last_batch) )*100;
+      double avg_PS_this_batch = (static_cast<double>(countOutliersVbreakdownBatch(last_batch, flag_run_at_25_celcius, 0))
+                                  / countValidSiPMsBatch(last_batch) )*100;
+      double avg_IV_corr_batch = (static_cast<double>(countOutliersVpeakBatch(last_batch, flag_run_at_25_celcius, 
+                                                                              syst_error_results[flag_run_at_25_celcius][0]))
+                                  / countValidSiPMsBatch(last_batch) )*100;
+      double avg_PS_corr_batch = (static_cast<double>(countOutliersVbreakdownBatch(last_batch, flag_run_at_25_celcius, 
+                                                                                   syst_error_results[flag_run_at_25_celcius][1]))
+                                  / countValidSiPMsBatch(last_batch) )*100;
+      
+      // draw new batch delimiters/average lines
+      cpads[0][1]->cd();
+      if (last_batch.compare(next_batch) != 0) batch_line->DrawLine(i_tray, plotlim_outliers[0], i_tray, plotlim_outliers[1]);
+      batch_avg_line_IV_corr->DrawLine(std::floor(start_of_batch), avg_IV_corr_batch, i_tray, avg_IV_corr_batch);
+      batch_avg_line_SPS_corr->DrawLine(std::floor(start_of_batch), avg_PS_corr_batch, i_tray, avg_PS_corr_batch);
+      
+      cpads[0][0]->cd();
+      if (last_batch.compare(next_batch) != 0) batch_line->DrawLine(i_tray, plotlim_outliers[0], i_tray, plotlim_outliers[1]);
+      batch_avg_line_IV->DrawLine(std::floor(start_of_batch), avg_IV_this_batch, i_tray, avg_IV_this_batch);
+      batch_avg_line_SPS->DrawLine(std::floor(start_of_batch), avg_PS_this_batch, i_tray, avg_PS_this_batch);
       
       // Label the batch on the plot
-      double batch_text_x = gPad->GetLeftMargin() + plot_window_size_x * static_cast<float>(start_of_batch)/n_trays + 0.01;
-      drawText(Form("Batch %s", last_batch.c_str()), batch_text_x, 0.81, false, kBlack, 0.0375);
-      if (last_batch.compare("250717") == 0) drawText("(ORNL)", batch_text_x, 0.77, false, kBlack, 0.0375);
+      if (i_tray - start_of_batch != 1) {
+        double batch_text_x = gPad->GetLeftMargin() + plot_window_size_x * static_cast<float>(start_of_batch)/n_trays + 0.01;
+        drawText(Form("Batch %s", last_batch.c_str()), batch_text_x, 0.81, false, kBlack, 0.0375);
+        if (last_batch.compare("250717") == 0) drawText("(ORNL)", batch_text_x, 0.77, false, kBlack, 0.0375);
+      }
       
       // continue to next batch
       last_batch = next_batch;
       start_of_batch = i_tray;
-    }
+    }// End of check for new batch
   }// End of batch delimiter lines
   
   // Finish first panel -- raw outliers against margin 50mV
   // assure points sit on top of lines
   cpads[0][0]->cd();
-//  hist_outliers_Vpeak->Draw("b p e x0 same");
+  hist_outliers_Vpeak->Draw("b p e x0 same");
   hist_outliers_Vbreakdown->Draw("hist b p0 e x0 same");
   
   // Legend for labeling the two V_breakdown measurement types
+  cpads[0][1]->cd();
   double first_x_margin = gPad->GetLeftMargin() + plot_window_size_x * 5.0/n_trays;
-  TLegend* vbd_legend = new TLegend(0.15, 0.05, first_x_margin - 0.02, 0.27);
+  TLegend* vbd_legend = new TLegend(0.1, 0.685, first_x_margin - 0.06, 0.95);
   vbd_legend->SetLineWidth(0);
-  vbd_legend->AddEntry(hist_outliers_Vpeak, "IV V_{bd} (also called V_{peak})", "p");
-  vbd_legend->AddEntry(hist_outliers_Vbreakdown, "SPS V_{bd}", "p");
-//  vbd_legend->Draw();
+  vbd_legend->AddEntry(hist_outliers_Vpeak, "IV V_{bd} Uncorrected", "p");
+  vbd_legend->AddEntry(hist_outliers_Vbreakdown, "SPS V_{bd} Uncorrected", "p");
+  vbd_legend->AddEntry(hist_outliers_syst_Vpeak, "IV V_{bd} Corrected", "p");
+  vbd_legend->AddEntry(hist_outliers_syst_Vbreakdown, "SPS V_{bd} Corrected", "p");
+  vbd_legend->Draw();
+  
+  
+  // Legend for the lines marking tray average, test sets
+  TLegend* line_legend = new TLegend(first_x_margin + 0.02, 0.56, first_x_margin + plot_window_size_x * 5.0/n_trays - 0.02, 0.95);
+  line_legend->SetLineWidth(0);
+  double avg_IV_all = (static_cast<double>(countOutliersVpeakBatch("-", flag_run_at_25_celcius, 0))
+                       / countSiPMsAllTrays() )*100;
+  double avg_PS_all = (static_cast<double>(countOutliersVbreakdownBatch("-", flag_run_at_25_celcius, 0))
+                       / countSiPMsAllTrays() )*100;
+  double avg_IV_corr = (static_cast<double>(countOutliersVpeakBatch("-", flag_run_at_25_celcius,
+                                                                    syst_error_results[flag_run_at_25_celcius][0]))
+                        / countSiPMsAllTrays() )*100;
+  double avg_PS_corr = (static_cast<double>(countOutliersVbreakdownBatch("-", flag_run_at_25_celcius,
+                                                                         syst_error_results[flag_run_at_25_celcius][1]))
+                       / countSiPMsAllTrays() )*100;
+  line_legend->AddEntry(margin_line, Form("Contract Margin (%.1f%%)",contract_outlier_margin_percent), "l");
+  line_legend->AddEntry(batch_avg_line_IV, Form("IV Outliers (Total: #color[2]{%.2f}%%)",avg_IV_all), "l");
+  line_legend->AddEntry(batch_avg_line_SPS, Form("SPS Outliers (Total: #color[2]{%.2f}%%)",avg_PS_all), "l");
+  line_legend->AddEntry(batch_avg_line_IV_corr, Form("IV Corrected (Total: #color[2]{%.2f}%%)",avg_IV_corr), "l");
+  line_legend->AddEntry(batch_avg_line_SPS_corr, Form("SPS Corrected (Total: #color[2]{%.2f}%%)",avg_PS_corr), "l");
+  line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
+  line_legend->Draw();
+  
+  // Second panel -- outliers including extra tolerance for systematic errors
+  cpads[0][1]->cd();
+//  hist_outliers_syst_Vpeak->Draw("b p e x0 same");
+  hist_outliers_syst_Vbreakdown->Draw("hist b p0 e x0 same");
+  
   
   // Draw some text giving info on the setup
+  cpads[0][0]->cd();
   double right_text_margin = gPad->GetRightMargin() - (n_trays <= lim_trays)*0.01;
   double left_text_margin = gPad->GetLeftMargin() - (n_trays <= lim_trays)*0.05;
   drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",           left_text_margin, 0.91, false, kBlack, 0.04);
@@ -969,20 +1029,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),        1.0-right_text_margin, 0.95, true, kBlack, 0.045);
   drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]),   1.0-right_text_margin, 0.905, true, kBlack, 0.035);
   
-  
-  // Legend for the lines marking tray average, test sets
-  TLegend* line_legend = new TLegend(first_x_margin + 0.02, 0.05, first_x_margin + plot_window_size_x * 5.0/n_trays - 0.02, 0.27);
-  line_legend->SetLineWidth(0);
-  line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
-  line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
-  line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
-//  line_legend->Draw();
-  
-  // Second panel -- outliers including extra tolerance for systematic errors
-  cpads[0][1]->cd();
-//  hist_outliers_syst_Vpeak->Draw("b p e x0 same");
-  hist_outliers_syst_Vbreakdown->Draw("hist b p0 e x0 same");
-  
+  // Save to file
   char string_quadsum_short[2][10] = {"_dirsum","_quadsum"};
   gCanvas_double->SaveAs(Form("../plots/batch_plots/batch_Vbr_outliers%s%s.pdf",
                               string_tempcorr_short[flag_run_at_25_celcius],
