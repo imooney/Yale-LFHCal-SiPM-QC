@@ -19,6 +19,7 @@ bool global_flag_run_at_25_celcius = false;
 // TODO make class variable, I was silly and didn't think I would use this as much as I do...
 bool global_flag_adjust_IV_tempcorr = false;
 bool global_flag_find_cycle_temp_gradient = true;
+bool reproducibility_skip_SPS = false;
 
 
 // Some helpful label strings
@@ -171,6 +172,23 @@ void systematic_analysis_summary() {
   reader->ReadDataIV();
   reader->ReadDataSPS();
   makeSurfaceImperfectionCorrelation();
+  
+  // Check IV reproducibility for "wave-like" correlations
+//  reproducibility_skip_SPS = true;
+//  initializeGlobalReproducabilityHists();
+//  gCanvas_cassetteplot = new TCanvas();
+//  gCanvas_cassetteplot->SetCanvasSize(1500,830);
+//  cassette_pad = buildPad("cassette_pad", 0, 0, 1, 0.75/0.83);
+//  cassette_pad->cd();
+//  cassette_pads = divideFlush(gPad, 8, 4, 0.025, 0.005, 0.05, 0.01);
+//
+//  reader->ReadFile("../batch_data_wavecheck.txt");
+//  reader->ReadDataIV();
+//  reader->ReadDataSPS();
+  makeReproducabilityHist("250911-1607");
+  // TODO Fix needing both IV and SPS always
+  // TODO Make it so that comments to pass in an empty file string to the reader
+  // Currently hobbles over the finish line but needs some cleaning...
   
 }// End of systematic_analysis_summary::main
 
@@ -396,6 +414,8 @@ void makeReproducabilityHist(std::string base_tray_id) {
           continue;
         }avg_this_sipm_IV += gReader->GetVbdTestIndexIV(tray_indices[i], r, s, global_flag_run_at_25_celcius);
         
+        if (reproducibility_skip_SPS) goto nextloop;
+        
         // Check for failed measurements and tally for later (SPS)
         if (gReader->GetVbdTestIndexSPS(tray_indices[i], r, s, global_flag_run_at_25_celcius) == -999) {
           has_failed_measurements_SPS[s/4][s%4] = true;
@@ -405,13 +425,13 @@ void makeReproducabilityHist(std::string base_tray_id) {
           continue;
         }avg_this_sipm_SPS += gReader->GetVbdTestIndexSPS(tray_indices[i], r, s, global_flag_run_at_25_celcius);
         
+      nextloop:
         // Tally total good SiPM tests
         if (s == 0) total_trays += 1;
       }// End of tray loop
       avg_this_sipm_IV /= total_trays;
       avg_this_sipm_SPS /= total_trays;
       ylim = total_trays + 1.5;
-      
       // IV histogram
       repetition_hists_IV[s/4][s%4] = new TH1D(Form("hist_IV_Vbr_set%i_(%i,%i)",r,(r*32 + s)/23,(r*32 + s)%23),
                                                ";V_{br} [V];Counts", 12,
@@ -427,23 +447,26 @@ void makeReproducabilityHist(std::string base_tray_id) {
       repetition_hists_IV[s/4][s%4]->GetYaxis()->SetRangeUser(0, ylim);
       
       // SPS histogram
-      repetition_hists_SPS[s/4][s%4] = new TH1D(Form("hist_SPS_Vbr_set%i_(%i,%i)",r,(r*32 + s)/23,(r*32 + s)%23),
-                                                ";V_{br} [V];Counts", 12,
-                                                avg_this_tray_SPS + volthist_range[0],
-                                                avg_this_tray_SPS + volthist_range[1]);
-      int color_to_use_SPS = plot_colors[1];
-      if (has_failed_measurements_SPS[s/4][s%4]) color_to_use_SPS = plot_colors[2];
-      repetition_hists_SPS[s/4][s%4]->SetLineColor(color_to_use_SPS);
-      repetition_hists_SPS[s/4][s%4]->SetFillColorAlpha(color_to_use_SPS, 0.25);
-      repetition_hists_SPS[s/4][s%4]->SetMarkerColor(color_to_use_SPS);
-      repetition_hists_SPS[s/4][s%4]->GetXaxis()->SetNdivisions(203);
-      repetition_hists_SPS[s/4][s%4]->GetYaxis()->SetNdivisions(204);
-      repetition_hists_SPS[s/4][s%4]->GetYaxis()->SetRangeUser(0, ylim);
+      if (!reproducibility_skip_SPS) {
+        repetition_hists_SPS[s/4][s%4] = new TH1D(Form("hist_SPS_Vbr_set%i_(%i,%i)",r,(r*32 + s)/23,(r*32 + s)%23),
+                                                  ";V_{br} [V];Counts", 12,
+                                                  avg_this_tray_SPS + volthist_range[0],
+                                                  avg_this_tray_SPS + volthist_range[1]);
+        int color_to_use_SPS = plot_colors[1];
+        if (has_failed_measurements_SPS[s/4][s%4]) color_to_use_SPS = plot_colors[2];
+        repetition_hists_SPS[s/4][s%4]->SetLineColor(color_to_use_SPS);
+        repetition_hists_SPS[s/4][s%4]->SetFillColorAlpha(color_to_use_SPS, 0.25);
+        repetition_hists_SPS[s/4][s%4]->SetMarkerColor(color_to_use_SPS);
+        repetition_hists_SPS[s/4][s%4]->GetXaxis()->SetNdivisions(203);
+        repetition_hists_SPS[s/4][s%4]->GetYaxis()->SetNdivisions(204);
+        repetition_hists_SPS[s/4][s%4]->GetYaxis()->SetRangeUser(0, ylim);
+      }
       
       // fill the single test histograms
       for (int i = 0; i < tray_indices.size(); ++i) {
         if (tray_indices[i] == -1) continue; // flag for bad tray, in case I need it later
         repetition_hists_IV[s/4][s%4]->Fill(gReader->GetVbdTestIndexIV(tray_indices[i], r, s, global_flag_run_at_25_celcius));
+        if (reproducibility_skip_SPS) continue;
         repetition_hists_SPS[s/4][s%4]->Fill(gReader->GetVbdTestIndexSPS(tray_indices[i], r, s, global_flag_run_at_25_celcius));
       }
       
@@ -451,37 +474,40 @@ void makeReproducabilityHist(std::string base_tray_id) {
       double stdev[2] = {0,0};
       // only use SiPMs with all ok measurements for consistency
       if (!has_failed_measurements_IV[s/4][s%4] &&
-          !has_failed_measurements_SPS[s/4][s%4]) {
+          (!reproducibility_skip_SPS && !has_failed_measurements_SPS[s/4][s%4])) {
         for (int i = 0; i < tray_indices.size(); ++i) {
           if (tray_indices[i] == -1) continue; // flag for bad tray, in case I need it later
           // Fill global residual histograms
           double dev_this_meas_IV = gReader->GetVbdTestIndexIV(tray_indices[i], r, s, global_flag_run_at_25_celcius) - avg_this_sipm_IV;
-          double dev_this_meas_SPS = gReader->GetVbdTestIndexSPS(tray_indices[i], r, s, global_flag_run_at_25_celcius) - avg_this_sipm_SPS;
-          
           gHist_rep_residual[0]->Fill(dev_this_meas_IV*1000);
-          gHist_rep_residual[1]->Fill(dev_this_meas_SPS*1000);
+          stdev[0] += dev_this_meas_IV*dev_this_meas_IV;
           
-          stdev[0] += dev_this_meas_IV*dev_this_meas_IV;   // IV
-          stdev[1] += dev_this_meas_SPS*dev_this_meas_SPS; // SPS
+          // Add option to skip SPS if only IV data is of interest
+          if (reproducibility_skip_SPS) continue;
+          double dev_this_meas_SPS = gReader->GetVbdTestIndexSPS(tray_indices[i], r, s, global_flag_run_at_25_celcius) - avg_this_sipm_SPS;
+          gHist_rep_residual[1]->Fill(dev_this_meas_SPS*1000);
+          stdev[1] += dev_this_meas_SPS*dev_this_meas_SPS;
         }// End of Histogram fill
         
         // Fill global stdev histogram
         gHist_rep_stdev[0]->Fill(std::sqrt(stdev[0])*1000); // IV
-        gHist_rep_stdev[1]->Fill(std::sqrt(stdev[1])*1000); // SPS
+        if (!reproducibility_skip_SPS)
+          gHist_rep_stdev[1]->Fill(std::sqrt(stdev[1])*1000); // SPS
 //        std::cout << "SPS error in cassette index " << s << " after computing : " << std::sqrt(stdev[1])*1000 << " mV" << std::endl;
         
         // Add stdev to error counter--for taking average later
         gRepError_IV[global_flag_run_at_25_celcius] += std::sqrt(stdev[0]); // IV
-        gRepError_SPS[global_flag_run_at_25_celcius] += std::sqrt(stdev[1]); // SPS
+        if (!reproducibility_skip_SPS)
+          gRepError_SPS[global_flag_run_at_25_celcius] += std::sqrt(stdev[1]); // SPS
         
         // Fitting to gaussian with LogLikelihood (best for low count hists)
         
         // TODO
       }// End of check for good SiPM tests
-      
     }// End of cassette loop
     
     // *------- Visual plot elements
+
     
     
     TLine* avg_line = new TLine();
@@ -500,6 +526,7 @@ void makeReproducabilityHist(std::string base_tray_id) {
     for (int s = 0; s < 32; ++s) {
       cassette_pads[3-s%4][7-s/4]->cd();
       gPad->SetTicks(1,1);
+      std::cout << t_red << "debug!" << t_def << std::endl;
       
       // Add extra padding to the canvases to split them from flush if desired
       if (flag_padded) {
