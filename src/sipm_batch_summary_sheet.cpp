@@ -25,7 +25,7 @@ TCanvas* gCanvas_double;
 std::vector<std::vector<TPad*> > cpads;
 
 // Static plot limit controls
-double voltplot_limits_static[2] = {37.15, 38.8};
+double voltplot_limits_static[2] = {36.95, 39.3};
 double diffplot_limits_static[2] = {-0.48, 0.48};
 double darkcurr_limits[2] = {0, 35};
 
@@ -447,18 +447,18 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   // Set up canvas dynamically based on the number of trays
   gCanvas_double->cd();
   gCanvas_double->Clear();
-  gCanvas_double->SetCanvasSize(300+40*n_trays, 750);
+  gCanvas_double->SetCanvasSize(300+50*n_trays, 750);
   cpads.clear();
   cpads.push_back(std::vector<TPad*>());
   cpads[0].push_back(buildPad("index_tray_0", 0, 1./3, 1, 1));
   cpads[0].push_back(buildPad("index_tray_1", 0, 0, 1, 1./3));
   
-  // Set up main pad: 300+40*n x 500
+  // Set up main pad: 300+50*n x 500
   cpads[0][0]->cd();
-  const float aspect_ratio = static_cast<float>(300+40*n_trays)/500.;
+  const float aspect_ratio = static_cast<float>(300+50*n_trays)/500.;
   gPad->SetTicks(1,1);
-  gPad->SetRightMargin(0.03*aspect_ratio);
-  gPad->SetLeftMargin(0.15-0.04*aspect_ratio);
+  gPad->SetRightMargin(0.01+0.01*aspect_ratio);
+  gPad->SetLeftMargin(0.16-0.03*aspect_ratio);
   gPad->SetTopMargin(0.11);
   gPad->SetBottomMargin(0.005);
   double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
@@ -748,7 +748,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   // Set up canvas dynamically based on the number of trays
   gCanvas_double->cd();
   gCanvas_double->Clear();
-  gCanvas_double->SetCanvasSize(300+40*n_trays, 800);
+  gCanvas_double->SetCanvasSize(300+50*n_trays, 800);
   cpads.clear();
   cpads.push_back(std::vector<TPad*>());
   cpads[0].push_back(buildPad("index_tray_0", 0, 0.5, 1, 1));
@@ -756,10 +756,10 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   
   // Set up main pad: 300+40*n x 500
   cpads[0][0]->cd();
-  const float aspect_ratio = static_cast<float>(300+40*n_trays)/400.;
+  const float aspect_ratio = static_cast<float>(300+50*n_trays)/400.;
   gPad->SetTicks(1,1);
-  gPad->SetRightMargin(0.03*aspect_ratio);
-  gPad->SetLeftMargin(0.15-0.04*aspect_ratio);
+  gPad->SetRightMargin(0.01+0.01*aspect_ratio);
+  gPad->SetLeftMargin(0.16-0.03*aspect_ratio);
   gPad->SetTopMargin(0.11);
   gPad->SetBottomMargin(0.005);
   double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
