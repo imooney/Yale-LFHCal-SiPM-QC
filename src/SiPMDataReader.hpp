@@ -654,25 +654,36 @@ public:
   
   
   void WriteCompressedFile(int tray_index) {
-    if (tray_index > this->tray_strings->size()) return;
+    int n_tray = this->tray_strings->size();
+    if (tray_index > n_tray) return;
     
-    char outfile_dir[100];
-    snprintf(outfile_dir, 100, "../data/%s-results/results-condensed.txt",tray_strings->at(tray_index).c_str());
     
-    std::ofstream outfile(outfile_dir);
-    
-    IV_data* tray_IV_data = IV_internal->at(tray_index);
-    SPS_data* tray_SPS_data = SPS_internal->at(tray_index);
-    
-    for (int i = 0; i < tray_IV_data->IV_Vpeak->size(); ++i) {
-//      outfile << tray_IV_data->row->at(i) << '\t';
-//      outfile << tray_IV_data->col->at(i) << '\t';
-      outfile << tray_SPS_data->SPS_Vbd->at(i) << '\t';
-      outfile << tray_IV_data->IV_Vpeak->at(i) << std::endl;
-    }
-    
-    outfile.close();
-  }
+    // Negative input: produce a file for all available data
+    for (int i_tray = 0; i_tray < n_tray; ++i_tray) {
+      if (tray_index >= 0 && tray_index != i_tray) continue;
+      
+      
+      char outfile_dir[100];
+      snprintf(outfile_dir, 100, "../data/%s-results/results-condensed.txt",tray_strings->at(i_tray).c_str());
+      std::cout << "Writing condensed file " << outfile_dir << std::endl;
+      
+      std::ofstream outfile(outfile_dir);
+      
+      IV_data* tray_IV_data = IV_internal->at(i_tray);
+      SPS_data* tray_SPS_data = SPS_internal->at(i_tray);
+      
+      for (int i = 0; i < tray_IV_data->IV_Vpeak->size(); ++i) {
+        // May be helpful to have indices but for main table not necessary
+        //      outfile << tray_IV_data->row->at(i) << '\t';
+        //      outfile << tray_IV_data->col->at(i) << '\t';
+        
+        outfile << tray_SPS_data->SPS_Vbd_25C->at(i) << '\t';
+        outfile << tray_IV_data->IV_Vpeak_25C->at(i) << std::endl;
+      }
+      
+      outfile.close();
+    }// End of loop on trays
+  }// End of SiPMDataReader::WriteCompressedFile
   
   
   // *---------------- Destructor

@@ -106,10 +106,10 @@ void sipm_batch_summary_sheet() {
   makeTestMapVpeak(false);
   makeTestMapVbreakdown(false);
   
-//  gReader->WriteCompressedFile(0);
-//  gReader->WriteCompressedFile(1);
-//  gReader->WriteCompressedFile(2);
-//  gReader->WriteCompressedFile(3);
+  // Write data in a format easily transferrable to a spreadsheet
+  // Negative input: Write for all trays
+  std::cout << "Writing compressed files..." << std::endl;
+  gReader->WriteCompressedFile(-1);
   
   // Plots with a summary of all trays to date
   makeIndexedTray(true);
