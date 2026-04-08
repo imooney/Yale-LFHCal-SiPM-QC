@@ -308,14 +308,14 @@ double getAvgVpeak(int tray_index, bool flag_run_at_25_celcius) {
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak_25C->begin();
          it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       avg_Vpeak += *it;
     }
     avg_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak_25C->size() - count_failed_measurements);
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak->begin();
          it != tray_to_analyze->IV_Vpeak->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       avg_Vpeak += *it;
     }
     avg_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak->size() - count_failed_measurements);
@@ -334,7 +334,7 @@ double getAvgVpeakAllTrays(bool flag_run_at_25_celcius) {
          tray_to_analyze != gReader->GetIV()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->IV_Vpeak_25C->begin();
            it != (*tray_to_analyze)->IV_Vpeak_25C->end(); ++it) {
-        if (*it == -999) continue;
+        if (*it == -999 || std::isnan(*it)) continue;
         avg_Vpeak += *it;
       }
     }
@@ -343,7 +343,7 @@ double getAvgVpeakAllTrays(bool flag_run_at_25_celcius) {
          tray_to_analyze != gReader->GetIV()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->IV_Vpeak->begin();
            it != (*tray_to_analyze)->IV_Vpeak->end(); ++it) {
-        if (*it == -999) continue;
+        if (*it == -999 || std::isnan(*it)) continue;
         avg_Vpeak += *it;
       }
     }
@@ -367,14 +367,14 @@ double getAvgVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
          it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       avg_Vbreakdown += *it;
     }
     avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size() - count_failed_measurements);
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
          it != tray_to_analyze->SPS_Vbd->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       avg_Vbreakdown += *it;
     }
     avg_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size() - count_failed_measurements);
@@ -393,7 +393,7 @@ double getAvgVbreakdownAllTrays(bool flag_run_at_25_celcius) {
          tray_to_analyze != gReader->GetSPS()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->SPS_Vbd_25C->begin();
            it != (*tray_to_analyze)->SPS_Vbd_25C->end(); ++it) {
-        if (*it == -999) continue;
+        if (*it == -999 || std::isnan(*it)) continue;
         avg_Vbreakdown += *it;
       }
     }
@@ -402,7 +402,7 @@ double getAvgVbreakdownAllTrays(bool flag_run_at_25_celcius) {
          tray_to_analyze != gReader->GetSPS()->end(); ++tray_to_analyze) {
       for (std::vector<float>::iterator it = (*tray_to_analyze)->SPS_Vbd->begin();
            it != (*tray_to_analyze)->SPS_Vbd->end(); ++it) {
-        if (*it == -999) continue;
+        if (*it == -999 || std::isnan(*it)) continue;
         avg_Vbreakdown += *it;
       }
     }
@@ -427,14 +427,14 @@ double getStdevVpeak(int tray_index, bool flag_run_at_25_celcius) {
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak_25C->begin();
          it != tray_to_analyze->IV_Vpeak_25C->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       stdev_Vpeak += (*it - avg_Vpeak)*(*it - avg_Vpeak);
     }
     stdev_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak_25C->size() - count_failed_measurements);
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->IV_Vpeak->begin();
          it != tray_to_analyze->IV_Vpeak->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       stdev_Vpeak += (*it - avg_Vpeak)*(*it - avg_Vpeak);
     }
     stdev_Vpeak /= static_cast<double>(tray_to_analyze->IV_Vpeak->size() - count_failed_measurements);
@@ -459,14 +459,14 @@ double getStdevVbreakdown(int tray_index, bool flag_run_at_25_celcius) {
   if (flag_run_at_25_celcius) {// Extrapolated to 25 degrees Celcius
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd_25C->begin();
          it != tray_to_analyze->SPS_Vbd_25C->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       stdev_Vbreakdown += (*it - avg_Vbreakdown)*(*it - avg_Vbreakdown);
     }
     stdev_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd_25C->size() - count_failed_measurements);
   } else {// At recoreded temperature
     for (std::vector<float>::iterator it = tray_to_analyze->SPS_Vbd->begin();
          it != tray_to_analyze->SPS_Vbd->end(); ++it) {
-      if (*it == -999) {++count_failed_measurements; continue;}
+      if (*it == -999 || std::isnan(*it)) {++count_failed_measurements; continue;}
       stdev_Vbreakdown += (*it - avg_Vbreakdown)*(*it - avg_Vbreakdown);
     }
     stdev_Vbreakdown /= static_cast<double>(tray_to_analyze->SPS_Vbd->size() - count_failed_measurements);

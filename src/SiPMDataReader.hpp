@@ -446,6 +446,7 @@ public:
         stdev_temp_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 4: RAW_VPEAK[V]
+        if (std::isnan(std::stof(entry))) continue; // nan handling in new output format
         IV_Vpeak_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 5: VPEAK(25C)[V]
