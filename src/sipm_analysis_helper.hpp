@@ -61,6 +61,12 @@ bool checkReader() {
   }return true;
 }
 
+// Establish the directory structure
+bool statDirectories(const char* batch_string) {
+  
+  
+}
+
 float getAvgFromVector(std::vector<float>& vec) {
   float avg = 0;
   for (std::vector<float>::iterator it = vec.begin(); it != vec.end(); ++it) {

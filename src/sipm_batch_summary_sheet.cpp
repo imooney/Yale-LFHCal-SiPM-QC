@@ -59,6 +59,9 @@ void makeHist_DarkCurrent();
 // Main macro method: generate SiPM data
 void sipm_batch_summary_sheet() {
   SiPMDataReader* reader = new SiPMDataReader();
+  
+  
+#if 1 // toggle between robot and regular running
   // Check robot
   reader->ReadFile("../batch_data_robotcheck.txt");
 //  reader->SetFlatTrayString();  // Do not require "-results" in text file
@@ -80,17 +83,20 @@ void sipm_batch_summary_sheet() {
   
   makeIndexSeries(true);
   makeIndexSeries(false);
+  makeIndexDifference(true);
+  makeIndexDifference(false);
   
   // Make 2D mappings to invesitage strange deviations
-  makeTrayMapVpeak();
-  makeTrayMapVbreakdown();
+  makeTrayMapVpeak(true);
+  makeTrayMapVbreakdown(true);
   makeTestMapVpeak();
   makeTestMapVbreakdown();
   
   gReader->WriteCompressedFile(-1);
   
+  makeHist_DarkCurrent();
   
-#if 0 // regular reader
+#else // regular reader
   // Read in trays to treat as current batch
   reader->ReadFile("../batch_data.txt");
   
@@ -351,10 +357,12 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     if (flag_run_at_25_celcius) {
       for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
 //        if (gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV) == 0) continue;
+//        hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->avg_temp->at(i_IV - 1)); // Testing temperature, delete this!!!
         hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV - 1));
       }
       for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
 //        if (gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS - 1) == 0) continue;
+//        hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->avg_temp->at(i_SPS - 1)); // Testing temperature, delete this!!!
         hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS - 1));
       }
     } else {
@@ -397,7 +405,7 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     
     // Set up the canvas/draw established hists
     gCanvas_solo->cd();
-    hist_indexed_Vpeak->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]);
+    hist_indexed_Vpeak->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]); // This line to comment out when swapping to temperature
     hist_indexed_Vpeak->GetYaxis()->SetTitleOffset(0.85);
     hist_indexed_Vpeak->SetMarkerColor(plot_colors[0]);
     hist_indexed_Vpeak->SetMarkerStyle(20);
@@ -1157,7 +1165,7 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   // Legend for labeling the two V_breakdown measurement types
   cpads[0][1]->cd();
   double first_x_margin = gPad->GetLeftMargin() + plot_window_size_x * 5.0/n_trays;
-  TLegend* vbd_legend = new TLegend(0.1, 0.685, first_x_margin - 0.06, 0.95);
+  TLegend* vbd_legend = new TLegend(0.125, 0.685, first_x_margin - 0.06, 0.95);
   vbd_legend->SetLineWidth(0);
   vbd_legend->AddEntry(hist_outliers_Vpeak, "IV V_{bd} Uncorrected", "p");
   vbd_legend->AddEntry(hist_outliers_Vbreakdown, "SPS V_{bd} Uncorrected", "p");
@@ -1375,8 +1383,13 @@ void makeTestMapVpeak(bool flag_run_at_25_celcius = true) {
                                     ";Cassette Index;IV Test Set;Deviation from Tray Avg. #color[2]{#bf{IV}} V_{br} [V]",
                                     32, 0, 32, 15, 0, 15);
     for (int i_IV = 0; i_IV < IV_size; ++i_IV) {
-      map_test_Vpeak->Fill(i_IV % 32, i_IV / 32,
-                           gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV) - avg_voltage);
+      if (flag_run_at_25_celcius) {
+        map_test_Vpeak->Fill(i_IV % 32, i_IV / 32,
+                             gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV) - avg_voltage);
+      } else {
+        map_test_Vpeak->Fill(i_IV % 32, i_IV / 32,
+                             gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV) - avg_voltage);
+      }
     }for (int i_fill = IV_size; i_fill < 32*15; ++i_fill)
       map_test_Vpeak->SetBinContent(i_fill % 32 + 1, i_fill / 32 + 1, -1);
     
@@ -1433,8 +1446,13 @@ void makeTestMapVbreakdown(bool flag_run_at_25_celcius = true) {
                                          ";Cassette Index;SPS Test Set;Deviation from Tray Avg. #color[2]{#bf{SPS}} V_{br} [V]",
                                          32, 0, 32, 15, 0, 15);
     for (int i_SPS = 0; i_SPS < SPS_size; ++i_SPS) {
-      map_test_Vbreakdown->Fill(i_SPS % 32, i_SPS / 32,
-                                gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS) - avg_voltage);
+      if (flag_run_at_25_celcius) {
+        map_test_Vbreakdown->Fill(i_SPS % 32, i_SPS / 32,
+                                  gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS) - avg_voltage);
+      } else {
+        map_test_Vbreakdown->Fill(i_SPS % 32, i_SPS / 32,
+                                  gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS) - avg_voltage);
+      }
     } for (int i_fill = SPS_size; i_fill < 32*15; ++i_fill)
       map_test_Vbreakdown->SetBinContent(i_fill % 32 + 1, i_fill / 32 + 1, -1);
     
