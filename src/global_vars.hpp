@@ -28,6 +28,7 @@ const char Hamamatsu_SiPM_Code[20] = "S14160-1315PS";
 const double declare_Vbd_outlier_range = 0.050; // +/- 50mV range around average
 const bool use_quadrature_sum_for_syst_error = true;
 const double contract_outlier_margin_percent = 5; // 5% outliers allowed by contract
+const float Hamamatsu_spec_max_Idark = 20.;
 
 // Fixed array info variables
 const int NROW = 20;

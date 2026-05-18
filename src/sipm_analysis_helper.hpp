@@ -61,11 +61,11 @@ bool checkReader() {
   }return true;
 }
 
-// Establish the directory structure
-bool statDirectories(const char* batch_string) {
-  
-  
-}
+// Establish the directory structure (TODO)
+//bool statDirectories(const char* batch_string) {
+//  
+//  
+//}
 
 float getAvgFromVector(std::vector<float>& vec) {
   float avg = 0;

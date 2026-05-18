@@ -12,6 +12,9 @@
 
 #include "global_vars.hpp"
 
+// Compiler flag to read with modified SPS format
+//#define read_modified_SPS_format
+
 // Global pointer for easy access
 class SiPMDataReader;
 SiPMDataReader* gReader = NULL;
@@ -573,8 +576,13 @@ public:
         std::vector<std::string> underscore_delimeter;
         while (getline(array_stream, c_underscore, '_')) underscore_delimeter.push_back(c_underscore);
         // Compute flattened array index from recovered column/row identifier
+#ifdef read_modified_SPS_format
+        int ccol = std::stoi(underscore_delimeter[underscore_delimeter.size()-4]);
+        int crow = std::stoi(underscore_delimeter[underscore_delimeter.size()-3]);
+#else
         int ccol = std::stoi(underscore_delimeter[underscore_delimeter.size()-2]);
         int crow = std::stoi(underscore_delimeter[underscore_delimeter.size()-1]);
+#endif
         int flattened_index = crow*NCOL + ccol;
         row_local->at(flattened_index) = crow;
         col_local->at(flattened_index) = ccol;
@@ -657,6 +665,7 @@ public:
   void WriteCompressedFile(int tray_index) {
     int n_tray = this->tray_strings->size();
     if (tray_index > n_tray) return;
+    if (tray_index == -1) std::cout << "Writing condensed files for all tray data...";
     
     
     // Negative input: produce a file for all available data
@@ -666,7 +675,7 @@ public:
       
       char outfile_dir[100];
       snprintf(outfile_dir, 100, "../data/%s-results/results-condensed.txt",tray_strings->at(i_tray).c_str());
-      std::cout << "Writing condensed file " << outfile_dir << std::endl;
+      if (tray_index != -1) std::cout << "Writing condensed file " << outfile_dir;
       
       std::ofstream outfile(outfile_dir);
       
@@ -683,7 +692,9 @@ public:
       }
       
       outfile.close();
+      if (tray_index != -1) std::cout << "Done." << std::endl;
     }// End of loop on trays
+    if (tray_index == -1) std::cout << "Done." << std::endl;
   }// End of SiPMDataReader::WriteCompressedFile
   
   
