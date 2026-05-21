@@ -31,8 +31,6 @@ double voltplot_limits_static[2] = {36.95, 39.3};
 double diffplot_limits_static[2] = {-0.48, 0.48};
 double darkcurr_limits[2] = {0, 35};
 
-// TODO make plotter class??? Or at least consider it...
-
 //========================================================================== Forward declarations
 
 // V_Breakdown and V_peak distributions
@@ -44,7 +42,8 @@ void makeIndexSeries(bool flag_run_at_25_celcius = true);
 void makeIndexDifference(bool flag_run_at_25_celcius = true);
 
 // Indexed plots to display test data over all available trays together
-void makeIndexedTray(bool flag_run_at_25_celcius = true);
+void makeIndexedTray(bool flag_run_at_25_celcius = true,
+                     bool draw_legends = true);
 void makeIndexedOutliers(bool flag_run_at_25_celcius = true);
 
 // Heat maps of test results for SiPM tray, cassette test location
@@ -586,7 +585,8 @@ void makeIndexDifference(bool flag_run_at_25_celcius) {
 // From each tray with errors representing the spread of data for each tray
 //
 // TODO return TObjectArray for summary sheet
-void makeIndexedTray(bool flag_run_at_25_celcius) {
+void makeIndexedTray(bool flag_run_at_25_celcius,
+                     bool draw_legends) {
   const bool debug_tray_index = false;
   const int n_trays = gReader->GetIV()->size();
   const int lim_trays = 8; // threshold below which to reformat the plot for few trays
@@ -604,8 +604,8 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   cpads[0][0]->cd();
   const float aspect_ratio = static_cast<float>(300+50*n_trays)/500.;
   gPad->SetTicks(1,1);
-  gPad->SetRightMargin(0.01+0.01*aspect_ratio);
-  gPad->SetLeftMargin(0.16-0.03*aspect_ratio);
+  gPad->SetRightMargin((0.00646*n_trays - 0.0248)*TMath::Exp(-0.0633*n_trays));
+  gPad->SetLeftMargin(0.03 + 0.0859*TMath::Exp(-0.0819*n_trays));
   gPad->SetTopMargin(0.11);
   gPad->SetBottomMargin(0.005);
   double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
@@ -712,9 +712,11 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   
   // Format histograms
   cpads[0][0]->cd();
+  double title_scale = 0.919 - 0.0115*n_trays;
   if (n_trays > lim_trays) hist_indexed_Vpeak_tray->GetXaxis()->SetTitleOffset(1.40);
   hist_indexed_Vpeak_tray->GetYaxis()->SetRangeUser(voltplot_limits_static[0], voltplot_limits_static[1]);
-  hist_indexed_Vpeak_tray->GetYaxis()->SetTitleOffset(0.6 + 0.8/aspect_ratio);
+  hist_indexed_Vpeak_tray->GetYaxis()->SetTitleOffset(title_scale*(0.6 + 0.8/aspect_ratio));
+  hist_indexed_Vpeak_tray->GetYaxis()->SetTickLength(plot_window_size_x * 0.5/n_trays);
   hist_indexed_Vpeak_tray->SetLineColor(plot_colors[0]);
   hist_indexed_Vpeak_tray->SetLineWidth(2);
   hist_indexed_Vpeak_tray->SetFillColorAlpha(plot_colors[0],0);
@@ -747,7 +749,8 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   hist_diffnominal_Vpeak->GetYaxis()->SetLabelSize(2.0 * hist_diffnominal_Vpeak->GetYaxis()->GetLabelSize());
   hist_diffnominal_Vpeak->GetYaxis()->SetTitleSize(2.0 * hist_diffnominal_Vpeak->GetYaxis()->GetTitleSize());
   hist_diffnominal_Vpeak->GetYaxis()->SetRangeUser(diffplot_limits_static[0], diffplot_limits_static[1]);
-  hist_diffnominal_Vpeak->GetYaxis()->SetTitleOffset(0.5*(0.6 + 0.8/aspect_ratio));
+  hist_diffnominal_Vpeak->GetYaxis()->SetTitleOffset(title_scale*0.5*(0.6 + 0.8/aspect_ratio));
+  hist_diffnominal_Vpeak->GetYaxis()->SetTickLength(plot_window_size_x * 0.5/n_trays);
   hist_diffnominal_Vpeak->SetLineColor(plot_colors[0]);
   hist_diffnominal_Vpeak->SetLineWidth(hist_indexed_Vpeak_tray->GetLineWidth());
   hist_diffnominal_Vpeak->SetFillColorAlpha(plot_colors[0], 0);
@@ -835,12 +838,16 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   
   // Legend for labeling the two V_breakdown measurement types
   double first_x_margin = gPad->GetLeftMargin() + plot_window_size_x * 5.0/n_trays;
-  TLegend* vbd_legend = new TLegend(0.15, 0.05, first_x_margin - 0.02, 0.27);
-  vbd_legend->SetLineWidth(0);
-  vbd_legend->AddEntry(hist_indexed_Vbreakdown_nominal, "Hamamatsu Nominal", "p");
-  vbd_legend->AddEntry(hist_indexed_Vpeak_tray, "IV V_{bd} (also called V_{peak})", "p");
-  vbd_legend->AddEntry(hist_indexed_Vbreakdown_tray, "SPS V_{bd}", "p");
-  vbd_legend->Draw();
+  if (draw_legends) {
+    double base_legend_margin_ticks = gPad->GetLeftMargin() + plot_window_size_x * 0.5/n_trays;
+    TLegend* vbd_legend = new TLegend(base_legend_margin_ticks, 0.05, first_x_margin - 0.02, 0.27);
+    vbd_legend->SetLineWidth(0);
+    vbd_legend->AddEntry(hist_indexed_Vbreakdown_nominal, "Hamamatsu Nominal", "p");
+    vbd_legend->AddEntry(hist_indexed_Vpeak_tray, "IV V_{bd} (also called V_{peak})", "p");
+    vbd_legend->AddEntry(hist_indexed_Vbreakdown_tray, "SPS V_{bd}", "p");
+    vbd_legend->Draw();
+  }// End of legend drawing
+  
   
   // Draw some text giving info on the setup
   double right_text_margin = gPad->GetRightMargin() - (n_trays <= lim_trays)*0.01;
@@ -852,12 +859,15 @@ void makeIndexedTray(bool flag_run_at_25_celcius) {
   
   
   // Legend for the lines marking tray average, test sets
-  TLegend* line_legend = new TLegend(first_x_margin + 0.02, 0.05, first_x_margin + plot_window_size_x * 5.0/n_trays - 0.02, 0.27);
-  line_legend->SetLineWidth(0);
-  line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
-  line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
-  line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
-  line_legend->Draw();
+  if (draw_legends) {
+    TLegend* line_legend = new TLegend(first_x_margin + 0.005, 0.05, first_x_margin + plot_window_size_x * 5.0/n_trays - 0.01, 0.27);
+    line_legend->SetLineWidth(0);
+    line_legend->AddEntry(avg_line, Form("Average all trays #left[#splitline{IV      %.2f}{SPS  %.2f}#right]",avg_voltages[0],avg_voltages[1]), "l");
+    line_legend->AddEntry(dev_line, "Average #pm 50mV", "l");
+    line_legend->AddEntry(batch_line, "Batch Delimeter", "l");
+    line_legend->Draw();
+  }
+  
   
   // Second panel -- difference against nominal
   cpads[0][1]->cd();
@@ -905,8 +915,8 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   cpads[0][0]->cd();
   const float aspect_ratio = static_cast<float>(300+50*n_trays)/400.;
   gPad->SetTicks(1,1);
-  gPad->SetRightMargin(0.01+0.01*aspect_ratio);
-  gPad->SetLeftMargin(0.16-0.03*aspect_ratio);
+  gPad->SetRightMargin((0.00646*n_trays - 0.0248)*TMath::Exp(-0.0633*n_trays));
+  gPad->SetLeftMargin(0.03 + 0.0859*TMath::Exp(-0.0819*n_trays));
   gPad->SetTopMargin(0.11);
   gPad->SetBottomMargin(0.005);
   double plot_window_size_x = 1.0 - gPad->GetRightMargin() - gPad->GetLeftMargin();
@@ -986,13 +996,15 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   
   // Format histograms
   cpads[0][0]->cd();
+  double title_scale = 0.919 - 0.0115*n_trays;
   double plotlim_outliers[2] = {0, 19};
   if (n_trays > lim_trays) hist_outliers_Vpeak->GetXaxis()->SetTitleOffset(1.40);
   hist_outliers_Vpeak->GetYaxis()->SetRangeUser(plotlim_outliers[0], plotlim_outliers[1]);
   hist_outliers_Vpeak->GetYaxis()->SetTitleOffset(0.6 + 0.8/aspect_ratio);
-  hist_outliers_Vpeak->GetYaxis()->SetTitleOffset((0.6 + 0.8/aspect_ratio)/1.5);
+  hist_outliers_Vpeak->GetYaxis()->SetTitleOffset(title_scale*(0.6 + 0.8/aspect_ratio)/1.5);
   hist_outliers_Vpeak->GetYaxis()->SetTitleSize(1.25*hist_outliers_Vpeak->GetYaxis()->GetTitleSize());
   hist_outliers_Vpeak->GetYaxis()->SetLabelSize(1.25*hist_outliers_Vpeak->GetYaxis()->GetLabelSize());
+  hist_outliers_Vpeak->GetYaxis()->SetTickLength(plot_window_size_x * 0.5/n_trays);
   hist_outliers_Vpeak->SetLineColor(plot_colors[0]);
   hist_outliers_Vpeak->SetLineWidth(2);
   hist_outliers_Vpeak->SetFillColorAlpha(plot_colors[0],.1);
@@ -1015,11 +1027,12 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   cpads[0][1]->cd();
   if (n_trays > lim_trays) hist_outliers_syst_Vpeak->GetXaxis()->SetTitleOffset(1.40);
   hist_outliers_syst_Vpeak->GetYaxis()->SetRangeUser(plotlim_outliers[0], plotlim_outliers[1]);
-  hist_outliers_syst_Vpeak->GetYaxis()->SetTitleOffset((0.6 + 0.8/aspect_ratio)/1.5);
+  hist_outliers_syst_Vpeak->GetYaxis()->SetTitleOffset(title_scale*(0.6 + 0.8/aspect_ratio)/1.5);
   hist_outliers_syst_Vpeak->GetXaxis()->SetTitleSize(1.5*hist_outliers_syst_Vpeak->GetXaxis()->GetTitleSize());
   hist_outliers_syst_Vpeak->GetXaxis()->SetLabelSize(1.5*hist_outliers_syst_Vpeak->GetXaxis()->GetLabelSize());
   hist_outliers_syst_Vpeak->GetYaxis()->SetTitleSize(1.25*hist_outliers_syst_Vpeak->GetYaxis()->GetTitleSize());
   hist_outliers_syst_Vpeak->GetYaxis()->SetLabelSize(1.25*hist_outliers_syst_Vpeak->GetYaxis()->GetLabelSize());
+  hist_outliers_syst_Vpeak->GetYaxis()->SetTickLength(plot_window_size_x * 0.5/n_trays);
   hist_outliers_syst_Vpeak->SetLineColor(plot_colors_alt[0]);
   hist_outliers_syst_Vpeak->SetLineWidth(2);
   hist_outliers_syst_Vpeak->SetFillColorAlpha(plot_colors_alt[0],.1);
@@ -1131,7 +1144,8 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   // Legend for labeling the two V_breakdown measurement types
   cpads[0][1]->cd();
   double first_x_margin = gPad->GetLeftMargin() + plot_window_size_x * 5.0/n_trays;
-  TLegend* vbd_legend = new TLegend(0.125, 0.685, first_x_margin - 0.06, 0.95);
+  double base_legend_margin_ticks = gPad->GetLeftMargin() + plot_window_size_x * 0.5/n_trays;
+  TLegend* vbd_legend = new TLegend(base_legend_margin_ticks, 0.685, first_x_margin - 0.06, 0.95);
   vbd_legend->SetLineWidth(0);
   vbd_legend->AddEntry(hist_outliers_Vpeak, "IV V_{bd} Uncorrected", "p");
   vbd_legend->AddEntry(hist_outliers_Vbreakdown, "SPS V_{bd} Uncorrected", "p");
