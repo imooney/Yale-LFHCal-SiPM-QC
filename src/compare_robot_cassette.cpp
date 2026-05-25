@@ -86,15 +86,20 @@ void compare_robot_cassette() {
 // Draw a 2D correlation plot of the IV results between two trays stored in the reader
 void makeCorrelationIV(std::string tray, bool flag_run_at_25_celcius) {
   
-  gCanvas_solo->Clear();
-  gCanvas_solo->SetCanvasSize(600, 600);
-  gCanvas_solo->cd();
+  gCanvas_double->Clear();
+  gCanvas_double->SetCanvasSize(1000, 500);
+  gCanvas_double->Divide(2, 1);
+  gCanvas_double->cd(1);
   gPad->SetTicks(1,1);
   gPad->SetLogy(0);
   gPad->SetRightMargin(0.05);
   gPad->SetLeftMargin(0.135);
   gPad->SetBottomMargin(0.085);
   gPad->SetTopMargin(0.075);
+  
+  // Keep track of the max difference
+  float diff_range[2] = {1e20, -1e20};
+  float avg_diff = 0;
   
   // Find the data for the two requested trays from the reader
   int index_1 = -1;
@@ -137,6 +142,12 @@ void makeCorrelationIV(std::string tray, bool flag_run_at_25_celcius) {
     
     IV_valid_1.push_back(IV_data_1->at(i_sipm));
     IV_valid_2.push_back(IV_data_2->at(i_sipm));
+    
+    // Check for new largest difference
+    float diff = IV_data_1->at(i_sipm) - IV_data_2->at(i_sipm);
+    avg_diff += diff;
+    if (diff < diff_range[0]) diff_range[0] = diff;
+    if (diff > diff_range[1]) diff_range[1] = diff;
   }// End of SiPM data loop
   
   // Plot a TGraph object of the correlation
@@ -144,8 +155,10 @@ void makeCorrelationIV(std::string tray, bool flag_run_at_25_celcius) {
   
   // Label axes
   graph_correlation->SetTitle("");
-  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark}",tray.c_str(),color_cassette[0]));
-  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark}",tray.c_str(),color_robot[0]));
+  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} V_{br}^{#color[%i]{IV}} [V]",
+                                               tray.c_str(),color_cassette[0],color_IV[0]));
+  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} V_{br}^{#color[%i]{IV}} [V]",
+                                               tray.c_str(),color_robot[0],color_IV[0]));
   
   // Draw
   graph_correlation->SetMarkerColor(color_IV[0]);
@@ -191,15 +204,66 @@ void makeCorrelationIV(std::string tray, bool flag_run_at_25_celcius) {
 //  correlation_legend->SetLineWidth(0);
   correlation_legend->Draw();
   
+  
+  
+  
+  // *------------- Draw 1d histogram projection of hist difference
+  
+  // Set up a histogram to record the difference between the two correlates
+  const int diff_nbin = 20;
+  TH1D* hist_diff = new TH1D(Form("IVdiff_robot_cassette_Vbr%s_%s.pdf",
+                                  string_tempcorr_short[flag_run_at_25_celcius],
+                                  gReader->GetTrayStrings()->at(index_1).c_str()),
+                             Form(";%s (#color[%i]{Cassette} - #color[%i]{Robot}) V_{br}^{#color[%i]{IV}} [V];Counts",
+                                  tray.c_str(),color_cassette[0],color_robot[0],color_IV[0]),
+                             diff_nbin, diff_range[0], diff_range[1]);
+  
+  // Fill the histogram
+  for (int i_sipm = 0; i_sipm < IV_valid_1.size(); ++i_sipm) {
+    hist_diff->Fill(IV_valid_1[i_sipm] - IV_valid_2[i_sipm]);
+  }// End of SiPM data loop
+  
+  gCanvas_double->cd(2);
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.05);
+  gPad->SetLeftMargin(0.135);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
+  
+  hist_diff->GetYaxis()->SetRangeUser(0, hist_diff->GetMaximum()*1.2);
+  hist_diff->SetLineColor(color_IV[0]);
+  hist_diff->SetFillColorAlpha(color_IV[0], 0.2);
+  hist_diff->Draw("hist");
+  
+  // Avg/Stdev information
+  avg_diff /= IV_valid_1.size();
+  TLine* avg_line = new TLine();
+  avg_line->SetLineColor(color_IV[1]);
+  avg_line->SetLineStyle(7);
+  avg_line->DrawLine(avg_diff, 0, avg_diff, hist_diff->GetMaximum());
+  
+  if (hist_diff->GetXaxis()->GetXmax() > 0 &&
+      hist_diff->GetXaxis()->GetXmin() < 0)
+    line_equality->DrawLine(0, 0, 0, hist_diff->GetMaximum());
+  
+  // Draw line for equality if it can be seen
+  drawText(Form("#mu = %.4f",hist_diff->GetMean(1)), 0.19, 0.85);
+  drawText(Form("#sigma = %.4f",hist_diff->GetStdDev(1)), 0.19, 0.8);
+  
   // Draw some text giving info on the setup
+  gCanvas_double->cd();
+  gPad->SetRightMargin(0.05/2);
+  gPad->SetLeftMargin(0.135/2);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
   drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.965, false, kBlack, 0.03);
   drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.935, false, kBlack, 0.03);
   drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 1-gPad->GetRightMargin(), 0.965, true, kBlack, 0.03);
   drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 1-gPad->GetRightMargin(), 0.935, true, kBlack, 0.023);
   
-  gCanvas_solo->SaveAs(Form("../plots/single_plots/correlations/IVcorrl_robot_cassette_Vbr%s_%s.pdf",
-                            string_tempcorr_short[flag_run_at_25_celcius],
-                            gReader->GetTrayStrings()->at(index_1).c_str()));
+  gCanvas_double->SaveAs(Form("../plots/single_plots/correlations/IVcorrl_robot_cassette_Vbr%s_%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              gReader->GetTrayStrings()->at(index_1).c_str()));
   
   return;
 }// End of sipm_batch_summary_sheet::makeCorrelationIV
@@ -209,15 +273,20 @@ void makeCorrelationIV(std::string tray, bool flag_run_at_25_celcius) {
 // Draw a 2D correlation plot of the SPS results between two trays stored in the reader
 void makeCorrelationSPS(std::string tray, bool flag_run_at_25_celcius) {
   
-  gCanvas_solo->Clear();
-  gCanvas_solo->SetCanvasSize(800, 800);
-  gCanvas_solo->cd();
+  gCanvas_double->Clear();
+  gCanvas_double->SetCanvasSize(1000, 500);
+  gCanvas_double->Divide(2, 1);
+  gCanvas_double->cd(1);
   gPad->SetTicks(1,1);
   gPad->SetLogy(0);
   gPad->SetRightMargin(0.05);
-  gPad->SetLeftMargin(0.135);
+  gPad->SetLeftMargin(0.145);
   gPad->SetBottomMargin(0.085);
   gPad->SetTopMargin(0.075);
+  
+  // Keep track of the max difference
+  float diff_range[2] = {1e20, -1e20};
+  float avg_diff = 0;
   
   // Find the data for the two requested trays from the reader
   int index_1 = -1;
@@ -260,6 +329,12 @@ void makeCorrelationSPS(std::string tray, bool flag_run_at_25_celcius) {
     
     SPS_valid_1.push_back(SPS_data_1->at(i_sipm));
     SPS_valid_2.push_back(SPS_data_2->at(i_sipm));
+    
+    // Check for new largest difference
+    float diff = SPS_data_1->at(i_sipm) - SPS_data_2->at(i_sipm);
+    avg_diff += diff;
+    if (diff < diff_range[0]) diff_range[0] = diff;
+    if (diff > diff_range[1]) diff_range[1] = diff;
   }// End of SiPM data loop
   
   // Plot a TGraph object of the correlation
@@ -267,8 +342,10 @@ void makeCorrelationSPS(std::string tray, bool flag_run_at_25_celcius) {
   
   // Label axes
   graph_correlation->SetTitle("");
-  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark}",tray.c_str(),color_cassette[0]));
-  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark}",tray.c_str(),color_robot[0]));
+  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} V_{br}^{#color[%i]{SPS}} [V]",
+                                               tray.c_str(),color_cassette[0],color_SPS[0]));
+  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} V_{br}^{#color[%i]{SPS}} [V]",
+                                               tray.c_str(),color_robot[0],color_SPS[0]));
   
   graph_correlation->SetMarkerColor(color_SPS[0]);
   graph_correlation->SetMarkerStyle(21);
@@ -313,15 +390,68 @@ void makeCorrelationSPS(std::string tray, bool flag_run_at_25_celcius) {
   //  correlation_legend->SetLineWidth(0);
   correlation_legend->Draw();
   
+  
+  
+  
+  
+  // *------------- Draw 1d histogram projection of hist difference
+  
+  // Set up a histogram to record the difference between the two correlates
+  const int diff_nbin = 20;
+  TH1D* hist_diff = new TH1D(Form("SPSdiff_robot_cassette_Vbr%s_%s.pdf",
+                                  string_tempcorr_short[flag_run_at_25_celcius],
+                                  gReader->GetTrayStrings()->at(index_1).c_str()),
+                             Form(";%s (#color[%i]{Cassette} - #color[%i]{Robot}) V_{br}^{#color[%i]{SPS}} [V];Counts",
+                                  tray.c_str(),color_cassette[0],color_robot[0],color_SPS[0]),
+                             diff_nbin, diff_range[0], diff_range[1]);
+  
+  // Fill the histogram
+  for (int i_sipm = 0; i_sipm < SPS_valid_1.size(); ++i_sipm) {
+    hist_diff->Fill(SPS_valid_1[i_sipm] - SPS_valid_2[i_sipm]);
+  }// End of SiPM data loop
+  
+  gCanvas_double->cd(2);
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.05);
+  gPad->SetLeftMargin(0.135);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
+  
+  hist_diff->GetYaxis()->SetRangeUser(0, hist_diff->GetMaximum()*1.2);
+  hist_diff->SetLineColor(color_SPS[0]);
+  hist_diff->SetFillColorAlpha(color_SPS[0], 0.2);
+  hist_diff->Draw("hist");
+  
+  // Average/Stdev information
+  avg_diff /= SPS_valid_1.size();
+  TLine* avg_line = new TLine();
+  avg_line->SetLineColor(color_SPS[1]);
+  avg_line->SetLineStyle(7);
+  avg_line->DrawLine(avg_diff, 0, avg_diff, hist_diff->GetMaximum());
+  drawText(Form("#mu = %.4f",hist_diff->GetMean(1)), 0.19, 0.85);
+  drawText(Form("#sigma = %.4f",hist_diff->GetStdDev(1)), 0.19, 0.8);
+  
+  // Draw line for equality if it can be seen
+  if (hist_diff->GetXaxis()->GetXmax() > 0 &&
+      hist_diff->GetXaxis()->GetXmin() < 0)
+    line_equality->DrawLine(0, 0, 0, hist_diff->GetMaximum());
+  
+  
+  
   // Draw some text giving info on the setup
+  gCanvas_double->cd();
+  gPad->SetRightMargin(0.05/2);
+  gPad->SetLeftMargin(0.135/2);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
   drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.965, false, kBlack, 0.03);
   drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.935, false, kBlack, 0.03);
   drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 1-gPad->GetRightMargin(), 0.965, true, kBlack, 0.03);
   drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 1-gPad->GetRightMargin(), 0.935, true, kBlack, 0.023);
   
-  gCanvas_solo->SaveAs(Form("../plots/single_plots/correlations/SPScorrl_robot_cassette_Vbr%s_%s.pdf",
-                            string_tempcorr_short[flag_run_at_25_celcius],
-                            gReader->GetTrayStrings()->at(index_1).c_str()));
+  gCanvas_double->SaveAs(Form("../plots/single_plots/correlations/SPScorrl_robot_cassette_Vbr%s_%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              gReader->GetTrayStrings()->at(index_1).c_str()));
   
   return;
 }// End of sipm_batch_summary_sheet::makeCorrelationSPS
@@ -331,15 +461,20 @@ void makeCorrelationSPS(std::string tray, bool flag_run_at_25_celcius) {
 // Draw a 2D correlation plot of the Dark Current results between two trays stored in the reader
 void makeCorrelationDarkCurrent(std::string tray, bool below_breakdown) {
   
-  gCanvas_solo->Clear();
-  gCanvas_solo->SetCanvasSize(800, 800);
-  gCanvas_solo->cd();
+  gCanvas_double->Clear();
+  gCanvas_double->SetCanvasSize(1000, 500);
+  gCanvas_double->Divide(2, 1);
+  gCanvas_double->cd(1);
   gPad->SetTicks(1,1);
   gPad->SetLogy(0);
   gPad->SetRightMargin(0.05);
   gPad->SetLeftMargin(0.135);
   gPad->SetBottomMargin(0.085);
   gPad->SetTopMargin(0.075);
+  
+  // Keep track of the max difference
+  float diff_range[2] = {1e20, -1e20};
+  float avg_diff = 0;
   
   // Find the data for the two requested trays from the reader
   int index_1 = -1;
@@ -382,6 +517,12 @@ void makeCorrelationDarkCurrent(std::string tray, bool below_breakdown) {
     
     IDark_valid_1.push_back(IDark_data_1->at(i_sipm));
     IDark_valid_2.push_back(IDark_data_2->at(i_sipm));
+    
+    // Check for new largest difference
+    float diff = IDark_data_1->at(i_sipm) - IDark_data_2->at(i_sipm);
+    avg_diff += diff;
+    if (diff < diff_range[0]) diff_range[0] = diff;
+    if (diff > diff_range[1]) diff_range[1] = diff;
   }// End of SiPM data loop
   
   // Plot a TGraph object of the correlation
@@ -389,8 +530,8 @@ void makeCorrelationDarkCurrent(std::string tray, bool below_breakdown) {
   
   // Label axes
   graph_correlation->SetTitle("");
-  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark}",tray.c_str(),color_cassette[0]));
-  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark}",tray.c_str(),color_robot[0]));
+  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark} [nA]",tray.c_str(),color_cassette[0]));
+  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark} [nA]",tray.c_str(),color_robot[0]));
   
   graph_correlation->SetMarkerColor(color_accent1[0]);
   graph_correlation->SetMarkerStyle(33);
@@ -429,18 +570,67 @@ void makeCorrelationDarkCurrent(std::string tray, bool below_breakdown) {
   //  correlation_legend->SetLineWidth(0);
   correlation_legend->Draw();
   
+  
+  
+  
+  // *------------- Draw 1d histogram projection of hist difference
+  
+  // Set up a histogram to record the difference between the two correlates
+  const int diff_nbin = 20;
+  TH1D* hist_diff = new TH1D(Form("diff_robot_cassette_Idark%s_%s.pdf",
+                                  string_dark_current_types[below_breakdown],
+                                  gReader->GetTrayStrings()->at(index_1).c_str()),
+                             Form(";%s (#color[%i]{Cassette} - #color[%i]{Robot}) I_{Dark} [nA];Counts",
+                                  tray.c_str(),color_cassette[0],color_robot[0]),
+                             diff_nbin, diff_range[0], diff_range[1]);
+  
+  // Fill the histogram
+  for (int i_sipm = 0; i_sipm < IDark_valid_1.size(); ++i_sipm) {
+    hist_diff->Fill(IDark_valid_1[i_sipm] - IDark_valid_2[i_sipm]);
+  }// End of SiPM data loop
+  
+  gCanvas_double->cd(2);
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.05);
+  gPad->SetLeftMargin(0.135);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
+  
+  hist_diff->GetYaxis()->SetRangeUser(0, hist_diff->GetMaximum()*1.2);
+  hist_diff->SetLineColor(color_accent1[0]);
+  hist_diff->SetFillColorAlpha(color_accent1[0], 0.2);
+  hist_diff->Draw("hist");
+  
+  // Avg/Stdev information
+  avg_diff /= IDark_valid_1.size();
+  TLine* avg_line = new TLine();
+  avg_line->SetLineColor(color_accent1[1]);
+  avg_line->SetLineStyle(7);
+  avg_line->DrawLine(avg_diff, 0, avg_diff, hist_diff->GetMaximum());
+  
+  if (hist_diff->GetXaxis()->GetXmax() > 0 &&
+      hist_diff->GetXaxis()->GetXmin() < 0)
+    line_equality->DrawLine(0, 0, 0, hist_diff->GetMaximum());
+  
+  // Draw line for equality if it can be seen
+  drawText(Form("#mu = %.4f",hist_diff->GetMean(1)), 0.19, 0.85);
+  drawText(Form("#sigma = %.4f",hist_diff->GetStdDev(1)), 0.19, 0.8);
+  
   // Draw some text giving info on the setup
-  char string_dark_current_types[2][10] = {"4above","3below"};
-  char string_dark_current_types_long[2][20] = {"V_{br} + 4","V_{br} - 3"};
+  gCanvas_double->cd();
+  gPad->SetRightMargin(0.05/2);
+  gPad->SetLeftMargin(0.135/2);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
   drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.965, false, kBlack, 0.03);
   drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.935, false, kBlack, 0.03);
   drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 1-gPad->GetRightMargin(), 0.965, true, kBlack, 0.03);
   drawText(Form("Dark Current at %s", string_dark_current_types_long[below_breakdown]), 1-gPad->GetRightMargin(), 0.935, true, kBlack, 0.023);
   
   
-  gCanvas_solo->SaveAs(Form("../plots/single_plots/correlations/IDark_corrl_robot_cassette_Vbr%s_%s.pdf",
-                            string_dark_current_types[below_breakdown],
-                            gReader->GetTrayStrings()->at(index_1).c_str()));
+  gCanvas_double->SaveAs(Form("../plots/single_plots/correlations/IDark_corrl_robot_cassette_Vbr%s_%s.pdf",
+                              string_dark_current_types[below_breakdown],
+                              gReader->GetTrayStrings()->at(index_1).c_str()));
   
   return;
 }// End of sipm_batch_summary_sheet::makeCorrelationDarkCurrent

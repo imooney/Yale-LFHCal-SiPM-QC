@@ -21,6 +21,9 @@
 const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected to 25C","Temperature corrected to 25C"};
 const char string_tempcorr_short[2][10] = {"","_25C"};
 
+char string_dark_current_types[2][10] = {"4above","3below"};
+char string_dark_current_types_long[2][20] = {"V_{br} + 4","V_{br} - 3"};
+
 // Global plot objects
 TCanvas* gCanvas_solo;
 TCanvas* gCanvas_double;
