@@ -81,9 +81,15 @@ private:
   
   // Primary input file to read strings of trays to use in analysis
   std::string* batch_data_file;
+  std::string* batch_data_dir;
   
   // Strings for Hamamatsu Tray numbers to access from directories
   std::vector<std::string>* tray_strings;
+  std::vector<int>* tray_modes;
+  // Valid modes :: of Data
+  //   0 - Cassette setup
+  //   1 - Robotic setup
+  // Can add more if desired
   
   // Data arrays in struct format
   std::vector<struct IV_data*>* IV_internal;
@@ -92,6 +98,7 @@ private:
   // Flags for systematic analysis
   bool read_for_systematics; // TODO implement flags in reader
   bool has_subscript_results; // production data ends in "-results", systematics often don't.
+  bool modified_SPS_output_format; // 2 extra columns in SPS name label, needed to properly index SiPMs.
   
   // flags for printing and debugging
   bool verbose_mode;           // Print a reasonable amount of info about processes as they occur
@@ -103,6 +110,8 @@ private:
   // Read batch tray indices from text file
   // This specifies which trays are to be inspected in the current batch
   void GetBatchStrings() {
+    
+    // Print about the input file
     if (verbose_mode) std::cout << "Reading intput file " << t_blu << *batch_data_file << t_def << " for Tray batch numbers...";
     std::ifstream infile(batch_data_file->c_str());
     std::string cline;
@@ -130,36 +139,55 @@ private:
     
     // Check that SiPMs were found in the file
     if (this->tray_strings->empty()) {
-      std::cout << t_red << "Failed!" << t_def << " Check file " << batch_data_file << "." << std::endl;
+      std::cout << t_red << "Failed!" << t_def << " Check file " << *batch_data_file << "." << std::endl;
       std::cerr << "Failed to read file for SiPM tray numbers. Exiting..." << std::endl;
       return;
     }
     
     // Read at least one tray successfully!
-    if (verbose_mode) std::cout << "Success!" << std::endl;
+    // Confirm the success and give a color reference in verbose mode
+    if (verbose_mode) {
+      std::cout << "Success!" << std::endl;
+      std::cout << "Note the color code :: " << std::endl;
+      std::cout << "   - " << t_blu << "Blue" << t_def << " : Directory and I/O information" << std::endl;
+      std::cout << "   - " << t_grn << "Green" << t_def << ": Valid (Cassette)" << std::endl;
+      std::cout << "   - " << t_cyn << "Cyan" << t_def << " : Valid (Robot)" << std::endl;
+      std::cout << "   - " << t_red << "Red" << t_def << "  : Invalid/Failed to read" << std::endl;
+    }
+    
     
     // Check that directories are valid
     std::vector<std::string>* valid_trays = new std::vector<std::string>();
+    std::vector<int>*         valid_modes = new std::vector<int>();
     std::vector<std::string>* invalid_trays = new std::vector<std::string>();
-    if (verbose_mode) std::cout << "Checking tray data..." << std::endl;
+    if (verbose_mode)std::cout << "Checking tray data..." << std::endl;
+    
     
     // Check tray data
     if (verbose_mode) std::cout << "SiPM Trays in Batch: {";
     for (std::vector<std::string>::iterator it = this->tray_strings->begin(); it != this->tray_strings->end(); ++it) {
       // Check validity of current tray
-      bool is_valid = CheckValidTray(*it);
+      bool is_valid_cassette = CheckValidTray(*it, false);
+      bool is_valid_robot = CheckValidTray(*it, true);
       
       // report in verbose mode
       if (verbose_mode) {
-        if (!is_valid) std::cout << t_red;
-        else           std::cout << t_grn;
+        if (!is_valid_cassette && !is_valid_robot) std::cout << t_red;
+        else if (is_valid_cassette)                std::cout << t_grn;
+        else if (is_valid_robot)                   std::cout << t_cyn;
         std::cout << *it << t_def;
         if (it + 1 != this->tray_strings->end()) std::cout << ", ";
       }
       
-      // append to valid/invalid
-      if (is_valid) valid_trays->push_back(*it);
-      else          invalid_trays->push_back(*it);
+      // Append to valid/invalid
+      // Note that a tray may have valid robot data and valid non-robot data!
+      if (is_valid_cassette) {
+        valid_trays->push_back(*it);
+        valid_modes->push_back(0);
+      } if (is_valid_robot) {
+        valid_trays->push_back(*it);
+        valid_modes->push_back(1);
+      } if (!is_valid_cassette && !is_valid_robot) invalid_trays->push_back(*it); // Only invalid if fails for both
     }if (verbose_mode) std::cout << '}' << std::endl;
     
     if (!invalid_trays->empty()) {
@@ -179,20 +207,19 @@ private:
       std::cout << "\nIf the above invalid trays are in the data directory, they may be missed due to name convention." << std::endl;
       if (this->has_subscript_results) {
         std::cout << "SiPMDataReader::has_subscript_results is currently " << t_grn << "true" << t_def << "." << std::endl;
-        std::cout << " This means data should be stored as ../data/{Tray identifier}-results/{text files}." << std::endl;
+        std::cout << "This means data should be stored as ../data/{Tray identifier}-results/{text files}." << std::endl;
         std::cout << "If this is not desired, disable the flag using SiPMDataReader::SetFlatTrayString()" << std::endl;
       } else {
         std::cout << "SiPMDataReader::has_subscript_results is currently " << t_red << "false" << t_def << "." << std::endl;
-        std::cout << " This means data should be stored as ../data/{Tray identifier}/{text files}." << std::endl;
+        std::cout << "This means data should be stored as ../data/{Tray identifier}/{text files}." << std::endl;
         std::cout << "If this is not desired, enable the flag by setting SiPMDataReader::SetDefTrayString()" << std::endl;
-      }
+      }// End of error print
       
       if (valid_trays->empty()) {
         std::cerr << t_red << "No valid trays. Terminating..." << t_def << std::endl;
         return;
       }
       
-      tray_strings = valid_trays;
       std::cout << "The code will run with only trays {";
       for (std::vector<std::string>::iterator it = tray_strings->begin(); it != tray_strings->end(); ++it) {
         std::cout << t_grn << *it << t_def;
@@ -201,6 +228,8 @@ private:
     } else if (verbose_mode) std::cout << "All trays valid. Continuing to analysis..." << std::endl;
     
     // Valid trays assigned
+    this->tray_strings = valid_trays;
+    this->tray_modes = valid_modes;
     delete invalid_trays;
     return;
   }// End of SiPMDataReader::GetBatchStrings
@@ -208,21 +237,36 @@ private:
   
   
   // Check that a given tray is valid (i.e. its directory exists and has the right files)
-  bool CheckValidTray(std::string tray) {
-    char dir[50];
-    if (this->has_subscript_results) snprintf(dir, 50, "../data/%s-results", tray.c_str());
-    else                             snprintf(dir, 50, "../data/%s", tray.c_str());
+  bool CheckValidTray(std::string tray, bool check_for_robot_dir = false) {
+    // get the data directory based on the current flags
+    char dir[75];
+    if (this->batch_data_dir->size() == 0) {    // No subdirectory
+      if (!check_for_robot_dir) {               // Not checking for robot data
+        if (this->has_subscript_results) snprintf(dir, 75, "../data/%s-results", tray.c_str());
+        else                             snprintf(dir, 75, "../data/%s", tray.c_str());
+      } else {                                  // Checking for robot data
+        if (this->has_subscript_results) snprintf(dir, 75, "../data/%s-robot-results", tray.c_str());
+        else                             snprintf(dir, 75, "../data/%s-robot", tray.c_str());
+      }
+    } else {                                    // Has subdirectory
+      if (!check_for_robot_dir) {               // Not checking for robot data
+        if (this->has_subscript_results) snprintf(dir, 75, "../data/%s/%s-results", batch_data_dir->c_str(), tray.c_str());
+        else                             snprintf(dir, 75, "../data/%s/%s", batch_data_dir->c_str(), tray.c_str());
+      } else {                                  // Checking for robot data
+        if (this->has_subscript_results) snprintf(dir, 75, "../data/%s/%s-robot-results", batch_data_dir->c_str(), tray.c_str());
+        else                             snprintf(dir, 75, "../data/%s/%s-robot", batch_data_dir->c_str(), tray.c_str());
+      }
+    }// End of possible directory tree
     
     // Files which each directory should have:
     const int num_subfiles = 2;
     const char filelist[num_subfiles][50] = {
       "IV_result.txt",
       "SPS_result_onlynumbers.txt"
-      //"SPS_result.txt"                    // TODO do we need this file? Maybe could be removed from the requirement.
+      //"SPS_result.txt" /* File is not necessary but we will continue to keep it there in case we find a use for it */
     };
     
     // Use the stat struct to check the directory exists
-    
     struct stat check_dir;
     if (stat(dir, &check_dir) == 0) {
       // Directory OK, check files:
@@ -246,11 +290,7 @@ private:
     return false;
   }// End of SiPMDataReader::CheckValidTray
   
-  
-  
-  // TODO Reader for ORNL Format
-  
-  
+  // End of data input utility
   
 public:
   // *---------------- Constructors
@@ -258,16 +298,19 @@ public:
   SiPMDataReader() {
     this->read_for_systematics = false;
     this->has_subscript_results = true;
+    this->modified_SPS_output_format = false;
     
     this->verbose_mode = true;
     this->print_IV_all_SiPMs = false;
     this->print_SPS_all_SiPMs = false;
     
     this->tray_strings = new std::vector<std::string>();
+    this->tray_modes = new std::vector<int>();
     this->IV_internal = new std::vector<struct IV_data*>();
     this->SPS_internal = new std::vector<struct SPS_data*>();
     
     this->batch_data_file = new std::string();
+    this->batch_data_dir = new std::string();
     
     gReader = this;
   }
@@ -275,12 +318,14 @@ public:
   SiPMDataReader(const char* batch_file) {
     this->read_for_systematics = false;
     this->has_subscript_results = true;
+    this->modified_SPS_output_format = false;
     
     this->verbose_mode = true;
     this->print_IV_all_SiPMs = false;
     this->print_SPS_all_SiPMs = false;
     
     this->tray_strings = new std::vector<std::string>();
+    this->tray_modes = new std::vector<int>();
     this->IV_internal = new std::vector<struct IV_data*>();
     this->SPS_internal = new std::vector<struct SPS_data*>();
     
@@ -297,17 +342,42 @@ public:
   std::vector<IV_data*>*        GetIV()               {return this->IV_internal;}
   std::vector<SPS_data*>*       GetSPS()              {return this->SPS_internal;}
   std::vector<std::string>*     GetTrayStrings()      {return this->tray_strings;}
+  std::vector<int>*             GetTrayModes()        {return this->tray_modes;}
   
-  void                          SetSystematicMode()   {this->read_for_systematics = true;}    // should be run before running GetDataDebrecen
-  void                          SetFlatTrayString()   {this->has_subscript_results = false;}  // do not automatically require "-results" in tray strings
-  void                          SetDefTrayString()    {this->has_subscript_results = true;}   // do require "-results" in tray strings (typical convention)
-  void                          SetVerbose()          {this->verbose_mode = true;}            // Print some small information about accessed data
-  void                          SetQuiet()            {this->verbose_mode = false;}           // Print essentially nothing to the terminal
+  void                          SetSystematicMode()   {this->read_for_systematics = true;}        // should be run before running GetDataDebrecen
+  void                          SetFlatTrayString()   {this->has_subscript_results = false;}      // do not automatically require "-results" in tray strings
+  void                          SetModifiedSPSFormat(){this->modified_SPS_output_format = true;}  // Account for 2 extra columns in the SPS data
+  void                          SetDefTrayString()    {this->has_subscript_results = true;}       // do require "-results" in tray strings (typical convention)
+  void                          SetVerbose()          {this->verbose_mode = true;}                // Print some small information about accessed data
+  void                          SetQuiet()            {this->verbose_mode = false;}               // Print essentially nothing to the terminal
   void                          SetPrintIV()          {this->print_IV_all_SiPMs = true;}
   void                          SetPrintSPS()         {this->print_SPS_all_SiPMs = true;}
 
   // *---------------- Dynamic/Interfacing Getters
   
+  // Establish a subdirectory within the ../data directory
+  // Helpful when working with a large volume of data
+  void SetSubDirectory(const char* subdir) {
+    
+    char full_directory[100];
+    snprintf(full_directory, 100, "../data/%s", subdir);
+    
+    // Stat the subdirectory to make sure it exists
+    struct stat check_dir;
+    if (stat(full_directory, &check_dir) != 0) {// Failed to find directory
+      std::cout << t_red << "Error" << t_def << " in <SiPMDataReader::SetSubDirectory>:";
+      std::cout << " Requested directory {" << full_directory << "} not found." << std::endl;
+      return;
+    }
+    
+    // Set the local subdirectory
+    std::cout << "Sourcing data from subdirectory ../data/" << t_blu << subdir << t_def << std::endl;
+    batch_data_dir = new std::string(subdir);
+    return;
+  }
+  
+  // Read in tray data from a text file
+  // Overwrites any existing data if present
   void ReadFile(const char* filename) {
     this->tray_strings->clear();
     this->IV_internal->clear();
@@ -317,43 +387,51 @@ public:
     GetBatchStrings();
   }
   
+  // Add more trays to an already existing list without overwriting current data
   void AppendFile(const char* filename) {
     this->batch_data_file = new std::string(filename);
     GetBatchStrings();
   }
   
+  // Convert a cassette test index (set#, cassette#) to manufactory tray index (i,j)
   std::pair<int,int> GetTrayIndexFromTestIndex(int set, int cassette_index) {
     return std::make_pair((32*set + cassette_index)/23, (32*set + cassette_index)%23);
   }
   
+  // Convert a manufactory tray index (i,j) to cassette test index (set#, cassette#)
   std::pair<int,int> GetTestIndexFromTrayIndex(int row, int col) {
     return std::make_pair((23*row + col)/32, (23*row + col)%32);
   }
   
+  // Get the IV Breakdown Voltage for a single SiPM using input tray index (i,j)
   float GetVbdTrayIndexIV(int tray_index, int row, int col, bool temperature_corrected = false) {
     if (temperature_corrected) {
       return this->IV_internal->at(tray_index)->IV_Vpeak_25C->at(23*row + col);
     }return this->IV_internal->at(tray_index)->IV_Vpeak->at(23*row + col);
   }
   
+  // Get the IV Breakdown Voltage for a single SiPM using input cassette test index (set#, cassette#)
   float GetVbdTestIndexIV(int tray_index, int set, int cassette_index, bool temperature_corrected = false) {
     if (temperature_corrected) {
       return this->IV_internal->at(tray_index)->IV_Vpeak_25C->at(32*set + cassette_index);
     }return this->IV_internal->at(tray_index)->IV_Vpeak->at(32*set + cassette_index);
   }
   
+  // Get the SPS Breakdown Voltage for a single SiPM using input tray index (i,j)
   float GetVbdTrayIndexSPS(int tray_index, int row, int col, bool temperature_corrected = false) {
     if (temperature_corrected) {
       return this->SPS_internal->at(tray_index)->SPS_Vbd_25C->at(23*row + col);
     }return this->SPS_internal->at(tray_index)->SPS_Vbd->at(23*row + col);
   }
   
+  // Get the SPS Breakdown Voltage for a single SiPM using input cassette test index (set#, cassette#)
   float GetVbdTestIndexSPS(int tray_index, int set, int cassette_index, bool temperature_corrected = false) {
     if (temperature_corrected) {
       return this->SPS_internal->at(tray_index)->SPS_Vbd_25C->at(32*set + cassette_index);
     }return this->SPS_internal->at(tray_index)->SPS_Vbd->at(32*set + cassette_index);
   }
   
+  // Check if a given tray has a requested SiPM cassette test set (0-14)
   bool HasSet(int tray_index, int set_index) {
     return (this->IV_internal->at(tray_index)->IV_Vpeak->at(32*set_index) != -999);
   }
@@ -374,15 +452,37 @@ public:
     // Store data as a vector of data struct pointers
     this->IV_internal = new std::vector<IV_data*>();
     
-    if (verbose_mode) std::cout << "Gathering IV data for " << t_blu << tray_strings->size() << t_def << " trays." << std::endl;
+    int i = 0;
+    if (verbose_mode) std::cout << "Gathering IV data for " << t_mgn << tray_strings->size() << t_def << " trays." << std::endl;
     for (std::vector<std::string>::iterator it = tray_strings->begin(); it != tray_strings->end(); ++it) {
       
       // Form input file for this tray
       char IV_file[75];
-      if (this->has_subscript_results) snprintf(IV_file, 75, "../data/%s-results/IV_result.txt", it->c_str());
-      else                             snprintf(IV_file, 75, "../data/%s/IV_result.txt", it->c_str());
+      if (this->batch_data_dir->size() == 0) {    // No subdirectory
+        if (this->tray_modes->at(i) == 0) {      // Not robot data
+          if (this->has_subscript_results) snprintf(IV_file, 75, "../data/%s-results/IV_result.txt", it->c_str());
+          else                             snprintf(IV_file, 75, "../data/%s/IV_result.txt", it->c_str());
+        } else if (this->tray_modes->at(i) == 1) {// Is robot data
+          if (this->has_subscript_results) snprintf(IV_file, 75, "../data/%s-robot-results/IV_result.txt", it->c_str());
+          else                             snprintf(IV_file, 75, "../data/%s-robot/IV_result.txt", it->c_str());
+        }
+      } else {                                    // Has subdirectory
+        if (this->tray_modes->at(i) == 0) {       // Not robot data
+          if (this->has_subscript_results) snprintf(IV_file, 75, "../data/%s/%s-results/IV_result.txt", batch_data_dir->c_str(), it->c_str());
+          else                             snprintf(IV_file, 75, "../data/%s/%s/IV_result.txt", batch_data_dir->c_str(),it->c_str());
+        } else if (this->tray_modes->at(i) == 1) {// Is robot data
+          if (this->has_subscript_results) snprintf(IV_file, 75, "../data/%s/%s-robot-results/IV_result.txt", batch_data_dir->c_str(), it->c_str());
+          else                             snprintf(IV_file, 75, "../data/%s/%s-robot/IV_result.txt", batch_data_dir->c_str(), it->c_str());
+        }
+      }// End of possible directory tree
       
-      if (verbose_mode) std::cout << "Gathering IV data for tray " << t_grn << *it << t_def << "...";
+      // Report about tray status if in verbose mode
+      if (verbose_mode) {
+        std::cout << "Gathering IV data for tray ";
+        if (!this->tray_modes->at(i)) std::cout << t_grn;
+        else                               std::cout << t_cyn;
+        std::cout << *it << t_def << "...";
+      }
       
       // *-- data arrays to append to data struct
       IV_data* current_data = new IV_data();
@@ -494,6 +594,7 @@ public:
       IV_internal->push_back(current_data);
       
       if (verbose_mode) std::cout << "Done." << std::endl;
+      ++i; // Counter for Robot bool
     }// End of tray iterator
     
     // Assign global pointer and return
@@ -514,15 +615,37 @@ public:
     // Store data as a vector of data struct pointers
     this->SPS_internal = new std::vector<SPS_data*>();
     
-    if (verbose_mode) std::cout << "Gathering SPS data for " << t_blu << tray_strings->size() << t_def << " trays." << std::endl;
+    int i = 0;
+    if (verbose_mode) std::cout << "Gathering SPS data for " << t_mgn << tray_strings->size() << t_def << " trays." << std::endl;
     for (std::vector<std::string>::iterator it = tray_strings->begin(); it != tray_strings->end(); ++it) {
       
       // Form input file for this tray
       char SPS_file[75];
-      if (this->has_subscript_results) snprintf(SPS_file, 75, "../data/%s-results/SPS_result_onlynumbers.txt", it->c_str());
-      else                             snprintf(SPS_file, 75, "../data/%s/SPS_result_onlynumbers.txt", it->c_str());
+      if (this->batch_data_dir->size() == 0) {    // No subdirectory
+        if (this->tray_modes->at(i) == 0) {      // Not robot data
+          if (this->has_subscript_results) snprintf(SPS_file, 75, "../data/%s-results/SPS_result_onlynumbers.txt", it->c_str());
+          else                             snprintf(SPS_file, 75, "../data/%s/SPS_result_onlynumbers.txt", it->c_str());
+        } else if (this->tray_modes->at(i) == 1) {// Is robot data
+          if (this->has_subscript_results) snprintf(SPS_file, 75, "../data/%s-robot-results/SPS_result_onlynumbers.txt", it->c_str());
+          else                             snprintf(SPS_file, 75, "../data/%s-robot/SPS_result_onlynumbers.txt", it->c_str());
+        }
+      } else {                                    // Has subdirectory
+        if (this->tray_modes->at(i) == 0) {       // Not robot data
+          if (this->has_subscript_results) snprintf(SPS_file, 75, "../data/%s/%s-results/SPS_result_onlynumbers.txt", batch_data_dir->c_str(), it->c_str());
+          else                             snprintf(SPS_file, 75, "../data/%s/%s/SPS_result_onlynumbers.txt", batch_data_dir->c_str(),it->c_str());
+        } else if (this->tray_modes->at(i) == 1) {// Is robot data
+          if (this->has_subscript_results) snprintf(SPS_file, 75, "../data/%s/%s-robot-results/SPS_result_onlynumbers.txt", batch_data_dir->c_str(), it->c_str());
+          else                             snprintf(SPS_file, 75, "../data/%s/%s-robot/SPS_result_onlynumbers.txt", batch_data_dir->c_str(), it->c_str());
+        }
+      }// End of possible directory tree
       
-      if (verbose_mode) std::cout << "Gathering SPS data for tray " << t_grn << *it << t_def << "...";
+      // Report about tray status if in verbose mode
+      if (verbose_mode) {
+        std::cout << "Gathering SPS data for tray ";
+        if (!this->tray_modes->at(i)) std::cout << t_grn;
+        else                               std::cout << t_cyn;
+        std::cout << *it << t_def << "...";
+      }
       
       // *-- data arrays to append to data struct
       SPS_data* current_data = new SPS_data();
@@ -575,14 +698,18 @@ public:
         std::string c_underscore;
         std::vector<std::string> underscore_delimeter;
         while (getline(array_stream, c_underscore, '_')) underscore_delimeter.push_back(c_underscore);
+        
         // Compute flattened array index from recovered column/row identifier
-#ifdef read_modified_SPS_format
-        int ccol = std::stoi(underscore_delimeter[underscore_delimeter.size()-4]);
-        int crow = std::stoi(underscore_delimeter[underscore_delimeter.size()-3]);
-#else
-        int ccol = std::stoi(underscore_delimeter[underscore_delimeter.size()-2]);
-        int crow = std::stoi(underscore_delimeter[underscore_delimeter.size()-1]);
-#endif
+        // Account for possible change in formatting when testing robot
+        int ccol, crow;
+        if (this->modified_SPS_output_format) {
+          ccol = std::stoi(underscore_delimeter[underscore_delimeter.size()-4]);
+          crow = std::stoi(underscore_delimeter[underscore_delimeter.size()-3]);
+        } else {
+          ccol = std::stoi(underscore_delimeter[underscore_delimeter.size()-2]);
+          crow = std::stoi(underscore_delimeter[underscore_delimeter.size()-1]);
+        }
+        
         int flattened_index = crow*NCOL + ccol;
         row_local->at(flattened_index) = crow;
         col_local->at(flattened_index) = ccol;
@@ -652,6 +779,7 @@ public:
       SPS_internal->push_back(current_data);
       
       if (verbose_mode) std::cout << "Done." << std::endl;
+      ++i; // Counter for Robot bool
     }// End of tray iterator
     
     // Assign global pointer and return
