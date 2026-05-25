@@ -53,14 +53,74 @@ const int nbin_temp_grad = 19;
 //const int nbin_temp_grad = 39;
 const double range_temp_grad[2] = {-0.4, 0.4};
 
-// TODO refine color palette
+// Color pallette for the code
+// Colors sampled from/inspired by:
+//    - https://www.metmuseum.org/art/collection/search/717587
+//    - https://arxiv.org/pdf/2107.02270
 Int_t TH2_palette = kBird;
-Int_t plot_colors[3] = {
-  kViolet+1, kOrange+1, kRed+2
+// Colors are ordered as:
+//      {main, darker, lighter}
+Int_t color_IV[3] = {
+  getTColorFromHex("#7817DA"),
+  getTColorFromHex("#4E128A"),
+  getTColorFromHex("#C6A0ED")
+};
+Int_t color_SPS[3] = {
+  getTColorFromHex("#FD8628"),
+  getTColorFromHex("#A54B08"),
+  getTColorFromHex("#FFBD8C")
+};
+Int_t color_cassette[3] = {
+  getTColorFromHex("#2C8D46"),
+  getTColorFromHex("#06581C"),
+  getTColorFromHex("#B5DFC0")
+};
+Int_t color_robot[3] = {
+  getTColorFromHex("#00B5BC"),
+  getTColorFromHex("#1A7F83"),
+  getTColorFromHex("#BADDDE")
+};
+Int_t color_accent1[3] = {
+  getTColorFromHex("#E23813"),
+  getTColorFromHex("#AA3218"),
+  getTColorFromHex("#E7B0A5")
+};
+Int_t color_accent2[3] = {
+  getTColorFromHex("#319BD9"),
+  getTColorFromHex("#2072A2"),
+  getTColorFromHex("#ADCFE2")
+};
+Int_t color_accent3[3] = {
+  getTColorFromHex("#68B442"),
+  getTColorFromHex("#377B14"),
+  getTColorFromHex("#BED3B3")
+};
+Int_t color_flatgray[3] = {
+  getTColorFromHex("#A2A2A2"),
+  getTColorFromHex("#404040"),
+  getTColorFromHex("#E3E3E3")
+};
+Int_t color_warmgray[3] = {
+  getTColorFromHex("#BDACA5"),
+  getTColorFromHex("#443732"),
+  getTColorFromHex("#E3DCD9")
+};
+Int_t color_coolgray[3] = {
+  getTColorFromHex("#9AA5AA"),
+  getTColorFromHex("#404A50"),
+  getTColorFromHex("#DEE3E6")
 };
 
+// When accessing IV/SPS in an array
+Int_t plot_colors[3] = {
+  color_IV[0],
+  color_SPS[0],
+  color_accent1[0]
+};
 Int_t plot_colors_alt[3] = {
-  kViolet+3, kOrange+2, kRed+2
+  color_IV[1],
+  color_SPS[1],
+  color_accent1[1]
 };
 
 

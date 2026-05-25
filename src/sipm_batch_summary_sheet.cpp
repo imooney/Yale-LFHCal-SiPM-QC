@@ -233,14 +233,14 @@ void makeHist_DarkCurrent() {
   }
   
   // plot histograms
-  hist_dark_current_undervoltage[0]->SetLineColor(plot_colors_alt[0]);
-  hist_dark_current_undervoltage[0]->SetFillColorAlpha(plot_colors_alt[0], 0.2);
-  hist_dark_current_overvoltage[0]->SetLineColor(plot_colors[0]);
-  hist_dark_current_overvoltage[0]->SetFillColorAlpha(plot_colors[0], 0.2);
-  hist_dark_current_undervoltage[1]->SetLineColor(plot_colors_alt[1]);
-  hist_dark_current_undervoltage[1]->SetFillColorAlpha(plot_colors_alt[1], 0.2);
-  hist_dark_current_overvoltage[1]->SetLineColor(plot_colors[1]);
-  hist_dark_current_overvoltage[1]->SetFillColorAlpha(plot_colors[1], 0.2);
+  hist_dark_current_undervoltage[0]->SetLineColor(color_accent2[0]);
+  hist_dark_current_undervoltage[0]->SetFillColorAlpha(color_accent2[0], 0.2);
+  hist_dark_current_overvoltage[0]->SetLineColor(color_accent2[1]);
+  hist_dark_current_overvoltage[0]->SetFillColorAlpha(color_accent2[2], 0.2);
+  hist_dark_current_undervoltage[1]->SetLineColor(color_accent1[0]);
+  hist_dark_current_undervoltage[1]->SetFillColorAlpha(color_accent1[0], 0.2);
+  hist_dark_current_overvoltage[1]->SetLineColor(color_accent1[1]);
+  hist_dark_current_overvoltage[1]->SetFillColorAlpha(color_accent1[2], 0.2);
   
   
   double range_Idark_plot[2] = {0.5, 3.75*TMath::Max(hist_dark_current_undervoltage[0]->GetMaximum(),

@@ -144,11 +144,11 @@ void makeCorrelationIV(std::string tray, bool flag_run_at_25_celcius) {
   
   // Label axes
   graph_correlation->SetTitle("");
-  graph_correlation->sTitle(Form("%s Cassette V_{br}^{IV}",tray.c_str()));
-  graph_correlation->GetYaxis()->SetTitle(Form("%s Robot V_{br}^{IV}",tray.c_str()));
+  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark}",tray.c_str(),color_cassette[0]));
+  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark}",tray.c_str(),color_robot[0]));
   
   // Draw
-  graph_correlation->SetMarkerColor(plot_colors[0]);
+  graph_correlation->SetMarkerColor(color_IV[0]);
   graph_correlation->SetMarkerStyle(20);
   graph_correlation->Draw("AP");
   
@@ -267,10 +267,10 @@ void makeCorrelationSPS(std::string tray, bool flag_run_at_25_celcius) {
   
   // Label axes
   graph_correlation->SetTitle("");
-  graph_correlation->GetXaxis()->SetTitle(Form("%s Cassette V_{br}^{SPS}",tray.c_str()));
-  graph_correlation->GetYaxis()->SetTitle(Form("%s Robot V_{br}^{SPS}",tray.c_str()));
+  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark}",tray.c_str(),color_cassette[0]));
+  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark}",tray.c_str(),color_robot[0]));
   
-  graph_correlation->SetMarkerColor(plot_colors[1]);
+  graph_correlation->SetMarkerColor(color_SPS[0]);
   graph_correlation->SetMarkerStyle(21);
   graph_correlation->Draw("AP");
   
@@ -389,10 +389,10 @@ void makeCorrelationDarkCurrent(std::string tray, bool below_breakdown) {
   
   // Label axes
   graph_correlation->SetTitle("");
-  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[2]{Cassette} I_{Dark}",tray.c_str()));
-  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[880]{Robot} I_{Dark}",tray.c_str()));
+  graph_correlation->GetXaxis()->SetTitle(Form("%s #color[%i]{Cassette} I_{Dark}",tray.c_str(),color_cassette[0]));
+  graph_correlation->GetYaxis()->SetTitle(Form("%s #color[%i]{Robot} I_{Dark}",tray.c_str(),color_robot[0]));
   
-  graph_correlation->SetMarkerColor(plot_colors[2]);
+  graph_correlation->SetMarkerColor(color_accent1[0]);
   graph_correlation->SetMarkerStyle(33);
   graph_correlation->Draw("AP");
   
