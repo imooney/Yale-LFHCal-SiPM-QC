@@ -152,7 +152,7 @@ int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius, float extra_
   // Check for input -1, average all trays if so via recursion on this method.
   int count_outliers = 0;
   if (tray_index == -1) {// Recursion at depth 1--gather each tray and add them together
-    for (int i = 0; i < gReader->GetIV()->size(); ++i) count_outliers += countOutliersVbreakdown(i);
+    for (int i = 0; i < gReader->GetIV()->size(); ++i) count_outliers += countOutliersVpeak(i);
     return count_outliers;
   }
   
@@ -167,7 +167,7 @@ int countOutliersVpeak(int tray_index, bool flag_run_at_25_celcius, float extra_
   double V_outlier;
   if (use_quadrature_sum_for_syst_error)
     V_outlier = std::sqrt(declare_Vbd_outlier_range * declare_Vbd_outlier_range 
-                          + extra_tolerance*extra_tolerance);
+                          + std::fabs(extra_tolerance)*extra_tolerance);
   else
     V_outlier = declare_Vbd_outlier_range + extra_tolerance;
   
@@ -222,7 +222,7 @@ int countOutliersVbreakdown(int tray_index, bool flag_run_at_25_celcius, float e
   double V_outlier;
   if (use_quadrature_sum_for_syst_error)
     V_outlier = std::sqrt(declare_Vbd_outlier_range * declare_Vbd_outlier_range
-                          + extra_tolerance*extra_tolerance);
+                          + std::fabs(extra_tolerance)*extra_tolerance);
   else
     V_outlier = declare_Vbd_outlier_range + extra_tolerance;
   

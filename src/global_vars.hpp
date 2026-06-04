@@ -53,6 +53,14 @@ const int nbin_temp_grad = 19;
 //const int nbin_temp_grad = 39;
 const double range_temp_grad[2] = {-0.4, 0.4};
 
+
+// Input values from systematic analysis (in V)
+float syst_error_results[2][2] = {
+  {0.006943, 0.016606}, // Not temperature corrected
+  {0.002184, 0.016333}  // Temperature corrected to 25C
+};
+
+
 // Color pallette for the code
 // Colors sampled from/inspired by:
 //    - https://www.metmuseum.org/art/collection/search/717587

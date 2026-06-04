@@ -48,6 +48,7 @@ void makeIndexDifference(bool flag_run_at_25_celcius = true);
 void makeIndexedTray(bool flag_run_at_25_celcius = true,
                      bool draw_legends = true);
 void makeIndexedOutliers(bool flag_run_at_25_celcius = true);
+void makeCorrelationVbrOutliers(bool flag_run_at_25_celcius = true);
 
 // Heat maps of test results for SiPM tray, cassette test location
 void makeTrayMapVpeak(bool flag_run_at_25_celcius = true);
@@ -98,37 +99,38 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
 //  std::cout << "Average V_bd for all trays (25C) \t\t:: " << getAvgVbreakdownAllTrays(true) << std::endl;
   
   int n_trays = gReader->GetTrayStrings()->size();
-  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+  for (int i_tray = 0; i_tray < 1; ++i_tray) {
     std::cout << "Average V_bd (25C) for tray " << gReader->GetTrayStrings()->at(i_tray) << " \t:: " << getAvgVbreakdown(i_tray, true);
-    std::cout << " (" << t_mgn << countOutliersVbreakdown(i_tray, true) << t_def << " Outliers beyond tray avg +/-" << declare_Vbd_outlier_range << "V)" << std::endl;
+    std::cout << " (" << t_mgn << countOutliersVpeak(i_tray, true) << t_def << " Outliers beyond tray avg +/-" << declare_Vbd_outlier_range << "V)" << std::endl;
   }
   
-  // Make series at ambient temp and 25C corrected
-  makeIndexSeries(true);
-  makeIndexSeries(false);
-  makeIndexDifference(true);
-  makeIndexDifference(false);
-  
-  makeHist_DarkCurrent();
-  
-  // Make 2D mappings to invesitage strange deviations
-  makeTrayMapVpeak();
-  makeTrayMapVbreakdown();
-  makeTestMapVpeak();
-  makeTestMapVbreakdown();
-  
-  makeTrayMapVpeak(false);
-  makeTrayMapVbreakdown(false);
-  makeTestMapVpeak(false);
-  makeTestMapVbreakdown(false);
-  
-  // Write data in a format easily transferrable to a spreadsheet
-  // Negative input: Write for all trays
-  gReader->WriteCompressedFile(-1);
-  
-  // Plots with a summary of all trays to date
-  makeIndexedTray(true);
-  makeIndexedOutliers(true);
+//  // Make series at ambient temp and 25C corrected
+//  makeIndexSeries(true);
+//  makeIndexSeries(false);
+//  makeIndexDifference(true);
+//  makeIndexDifference(false);
+//  
+//  makeHist_DarkCurrent();
+//  
+//  // Make 2D mappings to invesitage strange deviations
+//  makeTrayMapVpeak();
+//  makeTrayMapVbreakdown();
+//  makeTestMapVpeak();
+//  makeTestMapVbreakdown();
+//  
+//  makeTrayMapVpeak(false);
+//  makeTrayMapVbreakdown(false);
+//  makeTestMapVpeak(false);
+//  makeTestMapVbreakdown(false);
+//  
+//  // Write data in a format easily transferrable to a spreadsheet
+//  // Negative input: Write for all trays
+//  gReader->WriteCompressedFile(-1);
+//  
+//  // Plots with a summary of all trays to date
+//  makeIndexedTray(true);
+//  makeIndexedOutliers(true);
+  makeCorrelationVbrOutliers(true);
 }// End of sipm_batch_summary_sheet::main
 
 
@@ -999,12 +1001,6 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   const int n_trays = gReader->GetIV()->size();
   const int lim_trays = 8; // threshold below which to reformat the plot for few trays
   
-  // Input values from systematic analysis (in V)
-  float syst_error_results[2][2] = {
-    {0.006943, 0.016606}, // Not temperature corrected
-    {0.002184, 0.016333}  // Temperature corrected to 25C
-  };
-  
   // Set up canvas dynamically based on the number of trays
   gCanvas_double->cd();
   gCanvas_double->Clear();
@@ -1305,6 +1301,170 @@ void makeIndexedOutliers(bool flag_run_at_25_celcius) {
   delete hist_outliers_syst_Vbreakdown;
 }// End of sipm_batch_summary_sheet::makeIndexedOutliers
 
+
+// Make a correlation between tray avg breakdown voltage
+// and outlier count, as these things seem to be correlated
+//
+// TODO return TObjectArray for summary sheet
+void makeCorrelationVbrOutliers(bool flag_run_at_25_celcius) {
+  const int n_trays = gReader->GetIV()->size();
+//  const int lim_trays = 8; // threshold below which to reformat the plot for few trays
+  
+  // Set up canvas dynamically based on the number of trays
+  gCanvas_solo->cd();
+  gCanvas_solo->Clear();
+  gCanvas_solo->SetCanvasSize(750, 650);
+  gCanvas_solo->SetRightMargin(0.03);
+  gCanvas_solo->SetLeftMargin(0.10);
+  gCanvas_solo->SetTicks(1,1);
+  
+  
+  // Initialize arrays of data + error for plotting
+  // Data will be shown as TGraphErrors
+  std::vector<float> data_Vbr_IV[2];            // IV Breakdown Voltage per tray
+  std::vector<float> errs_Vbr_IV[2];            // IV Breakdown Voltage error
+  std::vector<float> data_Vbr_SPS[2];           // SPS Breakdown Voltage per tray
+  std::vector<float> errs_Vbr_SPS[2];           // SPS Breakdown Voltage error
+  std::vector<float> data_outliership_IV[2];    // Outliership of IV measurement (outliers / total measured SiPMs)
+  std::vector<float> errlow_outliership_IV[2];  // Error (lower) on outliership for IV measurement
+  std::vector<float> errhig_outliership_IV[2];  // Error (higher)on outliership for IV measurement
+  std::vector<float> data_outliership_SPS[2];   // Outliership of SPS measurement (outliers / total measured SiPMs)
+  std::vector<float> errlow_outliership_SPS[2];   // Error on outliership for SPS measurement
+  std::vector<float> errhig_outliership_SPS[2];   // Error on outliership for SPS measurement
+  
+  
+  
+  // Gather avg data for tray measurements and add to histogram
+  for (int i_tray = 0; i_tray < n_trays; ++i_tray) {
+    bool is_robot = (gReader->GetTrayModes()->at(i_tray) == 1);
+    
+    // Data for tray average
+    data_Vbr_IV[is_robot].push_back(getAvgVpeak(i_tray, flag_run_at_25_celcius));
+    data_Vbr_SPS[is_robot].push_back(getAvgVbreakdown(i_tray, flag_run_at_25_celcius));
+    
+    // Error for trays :: STDev
+    errs_Vbr_IV[is_robot].push_back(getStdevVpeak(i_tray, flag_run_at_25_celcius));
+    errs_Vbr_SPS[is_robot].push_back(getStdevVbreakdown(i_tray, flag_run_at_25_celcius));
+    
+    // Data for outliership :: Outliers +/- 50 MV
+    data_outliership_IV[is_robot].push_back( (static_cast<double>(countOutliersVpeak(i_tray, flag_run_at_25_celcius)) /
+                                              countValidSiPMs(i_tray) )*100);
+    data_outliership_SPS[is_robot].push_back( (static_cast<double>(countOutliersVbreakdown(i_tray, flag_run_at_25_celcius)) /
+                                               countValidSiPMs(i_tray) )*100);
+    
+    // Lower error on outliership :: Outliers +/- [50 + syst. err.] MV
+    errlow_outliership_IV[is_robot].push_back(data_outliership_IV[is_robot].back() -
+                                              (static_cast<double>(countOutliersVpeak(i_tray, flag_run_at_25_celcius, syst_error_results[flag_run_at_25_celcius][0])) /
+                                      countValidSiPMs(i_tray) )*100);
+    errlow_outliership_SPS[is_robot].push_back(data_outliership_SPS[is_robot].back() -
+                                               (static_cast<double>(countOutliersVbreakdown(i_tray, flag_run_at_25_celcius, syst_error_results[flag_run_at_25_celcius][1])) /
+                                                countValidSiPMs(i_tray) )*100);
+    
+    // Upper error on outliership :: Outliers +/- [50 - syst. err.] MV
+    errhig_outliership_IV[is_robot].push_back(-data_outliership_IV[is_robot].back() +
+                                              (static_cast<double>(countOutliersVpeak(i_tray, flag_run_at_25_celcius, -syst_error_results[flag_run_at_25_celcius][0])) /
+                                               countValidSiPMs(i_tray) )*100);
+    errhig_outliership_SPS[is_robot].push_back(-data_outliership_SPS[is_robot].back() +
+                                               (static_cast<double>(countOutliersVbreakdown(i_tray, flag_run_at_25_celcius, -syst_error_results[flag_run_at_25_celcius][1])) /
+                                                countValidSiPMs(i_tray) )*100);
+    
+    // Correct for rounding errors on converting int to double
+    if (std::fabs(errlow_outliership_IV[is_robot].back()) < 1e-5) errlow_outliership_IV[is_robot].back() = 0;
+    if (std::fabs(errhig_outliership_IV[is_robot].back()) < 1e-5) errhig_outliership_IV[is_robot].back() = 0;
+    if (std::fabs(errlow_outliership_SPS[is_robot].back()) < 1e-5) errlow_outliership_SPS[is_robot].back() = 0;
+    if (std::fabs(errhig_outliership_SPS[is_robot].back()) < 1e-5) errhig_outliership_SPS[is_robot].back() = 0;
+  }// End of data gathering
+  
+  
+  // Plot as TGraphAsymmErrors
+  TGraphAsymmErrors* IV_correlation_errors[2];
+  TGraphAsymmErrors* SPS_correlation_errors[2];
+  TMultiGraph* IV_correlation_full = new TMultiGraph();
+  TMultiGraph* SPS_correlation_full = new TMultiGraph();
+  TLegend* leg_correlation[2];
+  char robot_string[2][15] = {"cassette","robot"};
+  for (int i_robot = 0; i_robot < 2; ++i_robot) {
+    // IV correlation
+    IV_correlation_errors[i_robot] = new TGraphAsymmErrors(data_Vbr_IV[i_robot].size(),                                                      // n
+                                                           data_Vbr_IV[i_robot].data(), data_outliership_IV[i_robot].data(),                 // x, y
+                                                           errs_Vbr_IV[i_robot].data(), errs_Vbr_IV[i_robot].data(),                         // err_x_low, err_x_high
+                                                           errlow_outliership_IV[i_robot].data(), errhig_outliership_IV[i_robot].data() );   // err_y_low, err_y_high
+    IV_correlation_errors[i_robot]->SetName(Form("IV_correlation_errors_%s",robot_string[i_robot]));
+    IV_correlation_errors[i_robot]->SetLineColor(color_IV[i_robot]);
+    IV_correlation_errors[i_robot]->SetMarkerColor(color_IV[i_robot]);
+    IV_correlation_errors[i_robot]->SetMarkerStyle(20 + 33*i_robot);
+    IV_correlation_full->Add(IV_correlation_errors[i_robot], "p e1");
+    
+    // SPS correlation
+    SPS_correlation_errors[i_robot] = new TGraphAsymmErrors(data_Vbr_SPS[i_robot].size(),                                                      // n
+                                                            data_Vbr_SPS[i_robot].data(), data_outliership_SPS[i_robot].data(),                // x, y
+                                                            errs_Vbr_SPS[i_robot].data(), errs_Vbr_SPS[i_robot].data(),                        // err_x_low, err_x_high
+                                                            errlow_outliership_SPS[i_robot].data(), errhig_outliership_SPS[i_robot].data() );  // err_y_low, err_y_high
+    SPS_correlation_errors[i_robot]->SetName(Form("SPS_correlation_errors_%s",robot_string[i_robot]));
+    SPS_correlation_errors[i_robot]->SetLineColor(color_SPS[i_robot]);
+    SPS_correlation_errors[i_robot]->SetMarkerColor(color_SPS[i_robot]);
+    SPS_correlation_errors[i_robot]->SetMarkerStyle(21 + 33*i_robot);
+    SPS_correlation_full->Add(SPS_correlation_errors[i_robot], "p e1");
+    
+    // Set up legend
+    leg_correlation[i_robot] = new TLegend(0.05 + gPad->GetLeftMargin(), 0.8 - gPad->GetTopMargin(),
+                                     0.30 + gPad->GetLeftMargin(), 0.95 - gPad->GetTopMargin());
+    leg_correlation[i_robot]->SetLineWidth(0);
+  }// End of plot construction
+  
+  
+  
+  // Draw IV graph
+  IV_correlation_full->SetTitle(";Tray Avg. IV Breakdown V_{br} [V]; Tray IV Outliership [% SiPMs]");
+  IV_correlation_full->Draw("a");
+  
+  // Draw legend
+  leg_correlation[0]->AddEntry(IV_correlation_errors[0], "Cassette IV", "p e");
+  leg_correlation[0]->AddEntry(IV_correlation_errors[1], "Robot IV", "p e");
+  leg_correlation[0]->Draw();
+  
+  // Draw text about the setup
+  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",           gPad->GetLeftMargin(), 0.91, false, kBlack, 0.035);
+  drawText("#bf{ePIC} Test Stand",                                gPad->GetLeftMargin(), 0.955, false, kBlack, 0.04);
+  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),        1.0-gPad->GetRightMargin(), 0.95, true, kBlack, 0.04);
+  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]),   1.0-gPad->GetRightMargin(), 0.91, true, kBlack, 0.03);
+  drawText(Form("Outliers to %.1f + %.1f^{sys} mV", declare_Vbd_outlier_range*1000, syst_error_results[flag_run_at_25_celcius][0]*1000),
+           0.95-gPad->GetRightMargin(), 0.94-gPad->GetTopMargin(), true, kBlack, 0.04);
+  if (use_quadrature_sum_for_syst_error)
+    drawText("(Sys. added in Quadrature)", 0.95-gPad->GetRightMargin(), 0.89-gPad->GetTopMargin(), true, kBlack, 0.04);
+  
+  // Export canvas
+  gCanvas_solo->SaveAs(Form("../plots/batch_plots/IV_Vbr_Outliers_corrl%s.pdf",
+                            string_tempcorr_short[flag_run_at_25_celcius]));
+  
+  
+  
+  // Draw SPS graph
+  SPS_correlation_full->SetTitle(";Tray Avg. SPS Breakdown V_{br} [V]; Tray SPS Outliership [% SiPMs]");
+  SPS_correlation_full->Draw("a");
+  
+  // Draw legend
+  leg_correlation[1]->AddEntry(SPS_correlation_errors[0], "Cassette SPS", "p e");
+  leg_correlation[1]->AddEntry(SPS_correlation_errors[1], "Robot SPS", "p e");
+  leg_correlation[1]->Draw();
+  
+  // Draw text about the setup
+  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}",           gPad->GetLeftMargin(), 0.91, false, kBlack, 0.035);
+  drawText("#bf{ePIC} Test Stand",                                gPad->GetLeftMargin(), 0.955, false, kBlack, 0.04);
+  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),        1.0-gPad->GetRightMargin(), 0.95, true, kBlack, 0.04);
+  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]),   1.0-gPad->GetRightMargin(), 0.91, true, kBlack, 0.03);
+  drawText(Form("Outliers to %.1f + %.1f^{sys} mV", declare_Vbd_outlier_range*1000, syst_error_results[flag_run_at_25_celcius][1]*1000),
+           0.95-gPad->GetRightMargin(), 0.94-gPad->GetTopMargin(), true, kBlack, 0.04);
+  if (use_quadrature_sum_for_syst_error)
+           drawText("(Sys. added in Quadrature)", 0.95-gPad->GetRightMargin(), 0.89-gPad->GetTopMargin(), true, kBlack, 0.04);
+  
+  // Export canvas
+  gCanvas_solo->SaveAs(Form("../plots/batch_plots/SPS_Vbr_Outliers_corrl%s.pdf",
+                            string_tempcorr_short[flag_run_at_25_celcius]));
+  
+}// End of sipm_batch_summary_sheet::makeCorrelationVbrOutliers
+
+
 //========================================================================== Solo plot generating Macros: SiPM Tray/Test Mappings
 
 
@@ -1562,4 +1722,6 @@ void makeTestMapVbreakdown(bool flag_run_at_25_celcius = true) {
   return;
   
 }// End of sipm_batch_summary_sheet::makeTestMapVbreakdown
+
+
 

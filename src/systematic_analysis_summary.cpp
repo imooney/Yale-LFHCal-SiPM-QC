@@ -312,8 +312,9 @@ void drawGlobalReproducabilityHists(std::string modifier) {
                                              1000*gRepError_SPS[global_flag_run_at_25_celcius]), "l");
   vbd_legend->Draw();
   
-  gCanvas_solo->SaveAs(Form("../plots/systematic_plots/reproducibility%s/batch_reproducibility_stdev.pdf",
-                       string_tempcorr_short[global_flag_run_at_25_celcius]));
+  gCanvas_solo->SaveAs(Form("../plots/systematic_plots/reproducibility%s/%s_reproducibility_stdev.pdf",
+                       string_tempcorr_short[global_flag_run_at_25_celcius],
+                            modifier.c_str()));
   
   // Clean hists for another run
   delete gHist_rep_residual[0];
@@ -359,7 +360,7 @@ void makeReproducabilityHist(std::string base_tray_id, bool drawplot) {
       // Find which sets are repeated
       std::cout << "Repeated sets: { " << t_mgn;
       if (repeated.size() == 0) { // set repetitions
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < 14; ++i) {
           if (gReader->HasSet(count_index, i)) repeated.push_back(1); // data available
           else                                 repeated.push_back(0); // no data
           if (repeated.back()) std::cout << i << ' ';
@@ -517,6 +518,8 @@ void makeReproducabilityHist(std::string base_tray_id, bool drawplot) {
       }// End of check for good SiPM tests
     }// End of cassette loop
     
+    
+    
     // Only draw plots if desired
     if (drawplot) {
       // *------- Visual plot elements
@@ -642,13 +645,17 @@ void makeReproducabilityHist(std::string base_tray_id, bool drawplot) {
       
       // Clear latex for next run
       for (int iTex = 0; iTex < 6; ++iTex) top_tex[iTex]->Clear();
-      
-      // Clear repetition hists
-      for (int s = 0; s < 32; ++s) {
-        delete repetition_hists_IV[s/4][s%4];
-        delete repetition_hists_SPS[s/4][s%4];
-      }
     } // End of plot drawing
+    
+    
+    // Clear repetition hists from memory
+    for (int s = 0; s < 32; ++s) {
+      // Note that the 14th set only has 12 SiPMs
+      if (r == 14 && s == 12) break;
+      
+      delete repetition_hists_IV[s/4][s%4];
+      delete repetition_hists_SPS[s/4][s%4];
+    }
   }// End of repetition/measurement set loop
   return;
 }// End of systematic_analysis_summary::makeReproducabilityHist
