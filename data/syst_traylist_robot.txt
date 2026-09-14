@@ -1,0 +1,9 @@
+# Enter SiPM tray numbers to process in batch
+# Comments can be made using the '#' character
+
+$START
+250821-1302
+250821-1302-test2
+250821-1302-test3
+250821-1302-test4
+250821-1302-test5
