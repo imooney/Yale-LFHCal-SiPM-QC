@@ -8,7 +8,7 @@
 //
 //  Changelog ::
 //    - 10/19/25    : Created by Ryan Hamilton
-//    - 05/21/2026  : Some functionality moved to compare_robot_cassette on
+//    - 05/21/2026  : Some functionality moved to compare_robot_cassette
 //  *--
 
 #include "global_vars.hpp"
@@ -20,6 +20,8 @@
 // Some helpful label strings
 const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected to 25C","Temperature corrected to 25C"};
 const char string_tempcorr_short[2][10] = {"","_25C"};
+
+const char string_testmode[2][10] = {"cass","robot"};
 
 char string_dark_current_types[2][10] = {"4above","3below"};
 char string_dark_current_types_long[2][20] = {"V_{br} + 4","V_{br} - 3"};
@@ -43,6 +45,7 @@ void makeHist_SPS_Vbreakdown(bool flag_run_at_25_celcius = true);
 // Indexed plots to display test data for each individial tray
 void makeIndexSeries(bool flag_run_at_25_celcius = true);
 void makeIndexDifference(bool flag_run_at_25_celcius = true);
+void makeCorrelationIVSPS(std::string tray, bool flag_run_at_25_celcius = true);
 
 // Indexed plots to display test data over all available trays together
 void makeIndexedTray(bool flag_run_at_25_celcius = true,
@@ -104,11 +107,11 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
     std::cout << " (" << t_mgn << countOutliersVpeak(i_tray, true) << t_def << " Outliers beyond tray avg +/-" << declare_Vbd_outlier_range << "V)" << std::endl;
   }
   
-//  // Make series at ambient temp and 25C corrected
-//  makeIndexSeries(true);
-//  makeIndexSeries(false);
-//  makeIndexDifference(true);
-//  makeIndexDifference(false);
+  // Make series at ambient temp and 25C corrected
+  makeIndexSeries(true);
+  makeIndexSeries(false);
+  makeIndexDifference(true);
+  makeIndexDifference(false);
 //  
 //  makeHist_DarkCurrent();
 //  
@@ -122,7 +125,11 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
 //  makeTrayMapVbreakdown(false);
 //  makeTestMapVpeak(false);
 //  makeTestMapVbreakdown(false);
-//  
+  
+  
+  makeCorrelationIVSPS("250821-1305",true);
+  
+  
   // Write data in a format easily transferrable to a spreadsheet
   // Negative input: Write for all trays
   gReader->WriteCompressedFile(-1);
@@ -188,6 +195,189 @@ void makeHist_IV_Vbreakdown(bool flag_run_at_25_celcius) {
   
   return;
 }
+
+// Draw a 2D correlation plot of the IV and SPS results of an input tray
+void makeCorrelationIVSPS(std::string tray, bool flag_run_at_25_celcius) {
+  
+  gCanvas_double->Clear();
+  gCanvas_double->SetCanvasSize(1000, 500);
+  gCanvas_double->Divide(2, 1);
+  gCanvas_double->cd(1);
+  gPad->SetTicks(1,1);
+  gPad->SetLogy(0);
+  gPad->SetRightMargin(0.05);
+  gPad->SetLeftMargin(0.135);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
+  
+  // Keep track of the max difference
+  float diff_range[2] = {1e20, -1e20};
+  float avg_diff = 0;
+  
+  // Find the data for the two requested trays from the reader
+  int index_1 = -1;
+  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
+    if (tray.compare(gReader->GetTrayStrings()->at(i_tray)) == 0) index_1 = i_tray;
+  }// End of tray loop
+  
+  bool failed_to_find_tray = false;
+  if (index_1 == -1) {
+    std::cerr << "Error in <sipm_batch_summary_sheet::makeCorrelationIVSPS>: input tray data not found." << std::endl;
+    failed_to_find_tray = true;
+  } if (failed_to_find_tray) return;
+  
+  // Gather the input data to arrays that can be plotted
+  int count_failures_IV = 0;
+  std::vector<float> IV_valid;
+  std::vector<float>* IV_data;
+  if (!flag_run_at_25_celcius) IV_data = gReader->GetIV()->at(index_1)->IV_Vpeak;
+  else                         IV_data = gReader->GetIV()->at(index_1)->IV_Vpeak_25C;
+  int count_failures_SPS = 0;
+  std::vector<float> SPS_valid;
+  std::vector<float>* SPS_data;
+  if (!flag_run_at_25_celcius) SPS_data = gReader->GetSPS()->at(index_1)->SPS_Vbd;
+  else                         SPS_data = gReader->GetSPS()->at(index_1)->SPS_Vbd_25C;
+  
+  for (int i_sipm = 0; i_sipm < 460; ++i_sipm) {
+    bool is_failure = false;
+    if (IV_data->at(i_sipm) == -999) {++count_failures_IV; is_failure = true;}
+    if (SPS_data->at(i_sipm) == -999) {++count_failures_SPS; is_failure = true;}
+    
+    if (is_failure) continue;
+    
+    IV_valid.push_back(IV_data->at(i_sipm));
+    SPS_valid.push_back(SPS_data->at(i_sipm));
+    
+    // Check for new largest difference
+    float diff = IV_data->at(i_sipm) - SPS_data->at(i_sipm);
+    avg_diff += diff;
+    if (diff < diff_range[0]) diff_range[0] = diff;
+    if (diff > diff_range[1]) diff_range[1] = diff;
+  }// End of SiPM data loop
+  
+  // Plot a TGraph object of the correlation
+  TGraph* graph_correlation = new TGraph(IV_valid.size(), IV_valid.data(), SPS_valid.data());
+  
+  // Label axes
+  graph_correlation->SetTitle("");
+  graph_correlation->GetXaxis()->SetTitle(Form("Tray ##bf{%s} #color[%i]{IV} V_{br} [V]",
+                                               tray.c_str(),color_IV[0]));
+  graph_correlation->GetXaxis()->SetTitleOffset(1.1);
+  graph_correlation->GetYaxis()->SetTitle(Form("Tray ##bf{%s} #color[%i]{SPS} V_{br} [V]",
+                                               tray.c_str(),color_SPS[0]));
+  
+  // Draw
+//  graph_correlation->SetMarkerColor(color_accent1[0]);
+  graph_correlation->SetMarkerColor(color_warmgray[0]);
+  graph_correlation->SetMarkerStyle(20);
+  graph_correlation->Draw("AP");
+  
+  // Add some lines to help make the correlation more legible
+  double min_axis[2] = {
+    graph_correlation->GetXaxis()->GetBinLowEdge(graph_correlation->GetXaxis()->GetFirst()),
+    graph_correlation->GetYaxis()->GetBinLowEdge(graph_correlation->GetYaxis()->GetFirst())
+  };
+  double max_axis[2] = {
+    graph_correlation->GetXaxis()->GetBinUpEdge(graph_correlation->GetXaxis()->GetLast()),
+    graph_correlation->GetYaxis()->GetBinUpEdge(graph_correlation->GetYaxis()->GetLast())
+  };
+  
+  // Line for x = y in the correlation
+  TLine* line_equality = new TLine();
+  double range_corr[2] = {
+    TMath::Max(min_axis[0], min_axis[1]),
+    TMath::Min(max_axis[0], max_axis[1])
+  };
+  line_equality->DrawLine(range_corr[0], range_corr[0], range_corr[1], range_corr[1]);
+  
+  // Outlier lines
+  double avg[2] = {
+    getAvgVpeak(index_1, flag_run_at_25_celcius),
+    getAvgVbreakdown(index_1, flag_run_at_25_celcius)
+  };
+  TLine* line_outliers = new TLine();
+  line_outliers->SetLineStyle(7);
+  line_outliers->SetLineColor(kGray+2);
+  line_outliers->DrawLine(avg[0] - declare_Vbd_outlier_range, min_axis[1], avg[0] - declare_Vbd_outlier_range, max_axis[1]);
+  line_outliers->DrawLine(avg[0] + declare_Vbd_outlier_range, min_axis[1], avg[0] + declare_Vbd_outlier_range, max_axis[1]);
+  line_outliers->DrawLine(min_axis[0], avg[1] - declare_Vbd_outlier_range, max_axis[0], avg[1] - declare_Vbd_outlier_range);
+  line_outliers->DrawLine(min_axis[0], avg[1] + declare_Vbd_outlier_range, max_axis[0], avg[1] + declare_Vbd_outlier_range);
+  
+  // Add a small legend explaining what each item is
+  TLegend* correlation_legend = new TLegend(0.2, 0.74, 0.5, 0.86);
+  correlation_legend->AddEntry(graph_correlation, "Correlation", "p");
+  correlation_legend->AddEntry(line_equality, "Equality", "l");
+  correlation_legend->AddEntry(line_outliers, "Outliers", "l");
+  //  correlation_legend->SetLineWidth(0);
+  correlation_legend->Draw();
+  
+  
+  
+  
+  // *------------- Draw 1d histogram projection of hist difference
+  
+  // Set up a histogram to record the difference between the two correlates
+  const int diff_nbin = 20;
+  TH1D* hist_diff = new TH1D(Form("IVdiff_robot_cassette_Vbr%s_%s.pdf",
+                                  string_tempcorr_short[flag_run_at_25_celcius],
+                                  gReader->GetTrayStrings()->at(index_1).c_str()),
+                             Form(";Tray ##bf{%s} (#color[%i]{IV} - #color[%i]{SPS}) V_{br} [V];Counts",
+                                  tray.c_str(),color_IV[0], color_SPS[0]),
+                             diff_nbin, diff_range[0], diff_range[1]);
+  
+  // Fill the histogram
+  for (int i_sipm = 0; i_sipm < IV_valid.size(); ++i_sipm) {
+    hist_diff->Fill(IV_valid[i_sipm] - SPS_valid[i_sipm]);
+  }// End of SiPM data loop
+  
+  gCanvas_double->cd(2);
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.05);
+  gPad->SetLeftMargin(0.135);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
+  
+  hist_diff->GetYaxis()->SetRangeUser(0, hist_diff->GetMaximum()*1.2);
+  hist_diff->GetXaxis()->SetTitleOffset(1.1);
+//  hist_diff->SetLineColor(color_accent1[0]);
+//  hist_diff->SetFillColorAlpha(color_accent1[0], 0.2);
+  hist_diff->SetLineColor(color_warmgray[0]);
+  hist_diff->SetFillColorAlpha(color_warmgray[0], 0.2);
+  hist_diff->Draw("hist");
+  
+  // Avg/Stdev information
+  avg_diff /= IV_valid.size();
+  TLine* avg_line = new TLine();
+  avg_line->SetLineColor(color_coolgray[1]);
+  avg_line->SetLineStyle(7);
+  avg_line->DrawLine(avg_diff, 0, avg_diff, hist_diff->GetMaximum());
+  
+  if (hist_diff->GetXaxis()->GetXmax() > 0 &&
+      hist_diff->GetXaxis()->GetXmin() < 0)
+    line_equality->DrawLine(0, 0, 0, hist_diff->GetMaximum());
+  
+  // Draw line for equality if it can be seen
+  drawText(Form("#mu = %.4f",hist_diff->GetMean(1)), 0.19, 0.85);
+  drawText(Form("#sigma = %.4f",hist_diff->GetStdDev(1)), 0.19, 0.8);
+  
+  // Draw some text giving info on the setup
+  gCanvas_double->cd();
+  gPad->SetRightMargin(0.05/2);
+  gPad->SetLeftMargin(0.135/2);
+  gPad->SetBottomMargin(0.085);
+  gPad->SetTopMargin(0.075);
+  drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.965, false, kBlack, 0.03);
+  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.935, false, kBlack, 0.03);
+  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 1-gPad->GetRightMargin(), 0.965, true, kBlack, 0.03);
+  drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 1-gPad->GetRightMargin(), 0.935, true, kBlack, 0.023);
+  
+  gCanvas_double->SaveAs(Form("../plots/single_plots/correlations/corrl_IV_SPS_Vbr%s_%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              gReader->GetTrayStrings()->at(index_1).c_str()));
+  
+  return;
+}// End of sipm_batch_summary_sheet::makeCorrelationIV
+
 
 // Construct histograms of Dark Current for the trays in storage
 // Accesses data via global pointers in the header file
@@ -544,9 +734,10 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     
     
     //save histograms
-    gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed%s/%s_indexed_Vbd%s.pdf",
+    gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed%s/%s_%s_indexed_Vbd%s.pdf",
                               string_tempcorr_short[flag_run_at_25_celcius],
                               gReader->GetTrayStrings()->at(i_tray).c_str(),
+                              string_testmode[gReader->GetTrayModes()->at(i_tray)],
                               string_tempcorr_short[flag_run_at_25_celcius]));
     
     delete hist_indexed_Vpeak;
@@ -614,9 +805,11 @@ void makeIndexDifference(bool flag_run_at_25_celcius) {
     }
     
     // Set plot to be used in displaying the data
-    double voltplot_limits[2] = {
-      0.45, 0.625
-    };
+    double voltplot_limits[2] = {0.45, 0.625};
+    if (gReader->GetTrayModes()->at(i_tray) == 1) {
+      voltplot_limits[0] = 0.57;
+      voltplot_limits[1] = 0.68;
+    }
     
     // *-- plot histograms to represent the indexed SiPM test results
     
@@ -670,10 +863,17 @@ void makeIndexDifference(bool flag_run_at_25_celcius) {
     
     
     //save histograms
-    gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed_diff%s/%s_indexed_diff_Vbd%s.pdf",
-                              string_tempcorr_short[flag_run_at_25_celcius],
-                              gReader->GetTrayStrings()->at(i_tray).c_str(),
-                              string_tempcorr_short[flag_run_at_25_celcius]));
+    if (gReader->GetTrayModes()->at(i_tray) == 0) {// cassette
+      gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed_diff%s/%s_indexed_cass_diff_Vbd%s.pdf",
+                                string_tempcorr_short[flag_run_at_25_celcius],
+                                gReader->GetTrayStrings()->at(i_tray).c_str(),
+                                string_tempcorr_short[flag_run_at_25_celcius]));
+    } else {// Robot
+      gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed_diff%s/%s_indexed_robot_diff_Vbd%s.pdf",
+                                string_tempcorr_short[flag_run_at_25_celcius],
+                                gReader->GetTrayStrings()->at(i_tray).c_str(),
+                                string_tempcorr_short[flag_run_at_25_celcius]));
+    }// End of plot write
     
     delete hist_indexed_Vdiff;
   }// End of loop on trays
@@ -1415,7 +1615,10 @@ void makeCorrelationVbrOutliers(bool flag_run_at_25_celcius) {
   
   
   // Draw IV graph
-  IV_correlation_full->SetTitle(";Tray Avg. IV Breakdown V_{br} [V]; Tray IV Outliership [% SiPMs]");
+  IV_correlation_full->GetYaxis()->SetRangeUser(0, 20);
+  IV_correlation_full->GetXaxis()->SetTitle("Tray Avg. IV Breakdown V_{br} [V]");
+  IV_correlation_full->GetYaxis()->SetTitle("Tray IV Outliership [% SiPMs]");
+//  IV_correlation_full->GetXaxis()->SetTitleOffset(1.1);
   IV_correlation_full->Draw("a");
   
   // Draw legend
@@ -1440,7 +1643,9 @@ void makeCorrelationVbrOutliers(bool flag_run_at_25_celcius) {
   
   
   // Draw SPS graph
-  SPS_correlation_full->SetTitle(";Tray Avg. SPS Breakdown V_{br} [V]; Tray SPS Outliership [% SiPMs]");
+  SPS_correlation_full->GetYaxis()->SetRangeUser(0, 30);
+  SPS_correlation_full->GetXaxis()->SetTitle("Tray Avg. IV Breakdown V_{br} [V]");
+  SPS_correlation_full->GetYaxis()->SetTitle("Tray SPS Outliership [% SiPMs]");
   SPS_correlation_full->Draw("a");
   
   // Draw legend

@@ -544,29 +544,29 @@ public:
         col_local->at(flattened_index) = ccol;
         
         getline(linestream, entry, ' '); // 2: AVERAGE_TEMPERATURE[C]
-        avg_temp_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) avg_temp_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 3: TEMPERATURE_DEVIATION[C]
-        stdev_temp_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) stdev_temp_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 4: RAW_VPEAK[V]
         if (std::isnan(std::stof(entry))) continue; // nan handling in new output format
-        IV_Vpeak_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) IV_Vpeak_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 5: VPEAK(25C)[V]
-        IV_Vpeak_25C_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) IV_Vpeak_25C_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 6: IDARK(-3V)[nA]
-        Idark_3below_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) Idark_3below_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 7: IDARK(+4V)[nA]
-        Idark_4above_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) Idark_4above_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 8: TEMERATURE_BEFORE_IDARK_MEASUREMENT[V]
-        Idark_temp_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) Idark_temp_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 9: FORWARD_RESISTANCE[Ω] (TODO CHECK THIS IS THE RIGHT UNITS)
-        forward_res_local->at(flattened_index) = std::stof(entry);
+        if (entry.size() < 20) forward_res_local->at(flattened_index) = std::stof(entry);
         
         
         // Report IV results of each SiPM if requested
@@ -729,6 +729,7 @@ public:
         SPS_peakwidth_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 3: ROW_VBD[V] (AT MEASURED TEMPERATURE)
+        if (std::isnan(std::stof(entry)) || std::stof(entry) < 10) continue; // Failed measurement, skip remaining data
         SPS_Vbd_local->at(flattened_index) = std::stof(entry);
         
         getline(linestream, entry, ' '); // 4: AVERAGE_TEMPERATURE[C]

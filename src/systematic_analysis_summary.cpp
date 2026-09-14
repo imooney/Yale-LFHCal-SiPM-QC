@@ -106,8 +106,9 @@ void systematic_analysis_summary() {
   // *-- Analysis tasks: Reproducibility
   
   // Read IV and SPS data for reproducibility tests
-  reader->SetSubDirectory("repsyst");
-  reader->ReadFile("../data/syst_traylist_repsyst.txt");
+  reader->SetSubDirectory("cassetterep"); // Full repeated cassette measurement dataset
+//  reader->SetSubDirectory("repsyst"); // Old file with just a few repeated measurements
+  reader->ReadFile("../data/syst_traylist_cassetterep.txt");
   reader->ReadDataIV();
   reader->ReadDataSPS();
   
@@ -126,8 +127,32 @@ void systematic_analysis_summary() {
     initializeGlobalReproducabilityHists();
     
     // Make plots from reproducibility tests
+    makeReproducabilityHist("250717-1301");
+    makeReproducabilityHist("250717-1302");
+    makeReproducabilityHist("250717-1303");
+    makeReproducabilityHist("250717-1304");
+    makeReproducabilityHist("250717-1305");
+    makeReproducabilityHist("250821-1301");
     makeReproducabilityHist("250821-1302");
     makeReproducabilityHist("250821-1303");
+    makeReproducabilityHist("250821-1304");
+    makeReproducabilityHist("250821-1305");
+    makeReproducabilityHist("250911-0801");
+    makeReproducabilityHist("250911-0802");
+    makeReproducabilityHist("250911-1506");
+    makeReproducabilityHist("250911-1606");
+    makeReproducabilityHist("250911-1607");
+    makeReproducabilityHist("251016-0901");
+    makeReproducabilityHist("251016-1206");
+    makeReproducabilityHist("251016-1207");
+    makeReproducabilityHist("251016-1806");
+    makeReproducabilityHist("251113-1201");
+    makeReproducabilityHist("251113-1202");
+    makeReproducabilityHist("251113-1906");
+    makeReproducabilityHist("251113-2101");
+    makeReproducabilityHist("251211-1101");
+    makeReproducabilityHist("251211-1511");
+    makeReproducabilityHist("251211-1512");
     
     // Make composite plots with data from all repeated tests
     drawGlobalReproducabilityHists();
@@ -255,13 +280,13 @@ void drawGlobalReproducabilityHists(std::string modifier) {
   top_tex[2] = drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code),               1.-gPad->GetRightMargin(), 0.95, true, kBlack, 0.045);
   top_tex[3] = drawText(Form("%s", string_tempcorr[global_flag_run_at_25_celcius]),   1.-gPad->GetRightMargin(), 0.91, true, kBlack, 0.035);
   top_tex[4] = drawText(Form("%i total SiPMs",ntotal_sipms),                          0.9, 0.83, true, kBlack, 0.035);
-  top_tex[5] = drawText(Form("Each tested %i times",tests_per_sipm),                  0.9, 0.78, true, kBlack, 0.035);
+  top_tex[5] = drawText(Form("Each tested %i-5 times",tests_per_sipm),                  0.9, 0.78, true, kBlack, 0.035);
   
   // Legend to label which hists are IV/SPS
   TLegend* vbd_legend = new TLegend(0.14, 0.6, 0.4, 0.85);
   vbd_legend->SetLineWidth(0);
-  vbd_legend->AddEntry(gHist_rep_residual[0], "V_{bd} from IV curve", "f");
-  vbd_legend->AddEntry(gHist_rep_residual[1], "V_{bd} from SPS", "f");
+  vbd_legend->AddEntry(gHist_rep_residual[0], Form("V_{bd} from IV curve (#sigma = %.4f)",gHist_rep_residual[0]->GetStdDev()), "f");
+  vbd_legend->AddEntry(gHist_rep_residual[1], Form("V_{bd} from SPS (#sigma = %.4f)",gHist_rep_residual[1]->GetStdDev()), "f");
   vbd_legend->Draw();
   
   // Save residual curve

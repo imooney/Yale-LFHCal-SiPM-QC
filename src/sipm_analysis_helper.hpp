@@ -95,7 +95,7 @@ int countSiPMsAllTrays() {
        tray_to_analyze != gReader->GetIV()->end(); ++tray_to_analyze) {
     for (std::vector<float>::iterator it = (*tray_to_analyze)->IV_Vpeak->begin();
          it != (*tray_to_analyze)->IV_Vpeak->end(); ++it) {
-      if (*it == -999) continue; // -999: failed measurement or missing SiPM
+      if (*it == -999 || std::isnan(*it)) continue; // -999: failed measurement or missing SiPM
       ++count_SiPM;
     }
   }return count_SiPM;
