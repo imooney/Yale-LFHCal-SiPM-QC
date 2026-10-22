@@ -15,7 +15,9 @@
 #include "global_vars.hpp"
 #include "lib_debrecen_IV/IVBinaryFile.h"
 
-
+// Toggle between fit modes:
+//    fit1 :: Default (as described in ref. with 3rd der from SG, no smoothing)
+//    fit2 :: fixpeak (ratio of peak heights constrained to reduce fitting space)
 #define fit1
 
 //========================================================================== Global Variables
@@ -28,8 +30,8 @@ bool use_DMM_over_SMU = true;
 char voltage_type_str[2][5] = {"SMU","DMM"};
 
 // Controls for the Savitzky-Golay filter
-int SG_poly_order = 3;
-int SG_window_oneside = 4;
+int SG_poly_order = 6;
+int SG_window_oneside = 7; // Full convolution window size is 2r + 1
 
 // Debug flag
 bool _debug = false;
@@ -42,7 +44,7 @@ std::vector<std::vector<TPad*> > cpads;
 
 //========================================================================== Forward declarations
 
-double* getSavitzkyGolayCoefs3der(int poly_order, int interp_window);
+double* getSavitzkyGolayCoefs(int poly_order, int interp_window, int nderivs);
 
 double* performListConvolution(double* listA, int sizeA,
                                double* listB, int sizeB);
@@ -113,12 +115,13 @@ void analyze_third_derivative() {
   // Convert current from mA to A
   for (int i = 0; i < n_points; ++i) *(array_I+i) *= 1e-3;
   
+  
   // ----------------------------------------------------------------- Computing and fitting the 3rd derivative
   
   
   // Get the convolution kernel for the desired SG filter
   int ntotal_sg_coefs = 2*SG_window_oneside + 1;
-  double* sg_coefs = getSavitzkyGolayCoefs3der(SG_poly_order, SG_window_oneside);
+  double* sg_coefs = getSavitzkyGolayCoefs(SG_poly_order, SG_window_oneside, 3);
   
   std::cout << "SG convolution kernel : { ";
   for (int c = 0; c < ntotal_sg_coefs; ++c) {
@@ -128,6 +131,24 @@ void analyze_third_derivative() {
   // Perform the convolution to estimate the third derivative
   double* sg_3der_result = performListConvolution(array_I, n_points, sg_coefs, ntotal_sg_coefs);
   
+  // Scale by the finite difference cubed to make it a proper derivative
+  double avg_difference = 0;
+  for (int i = 1; i < n_points; ++i) {
+    avg_difference += *(array_V + i) - *(array_V + i - 1);
+  }avg_difference /= (n_points - 1);
+  
+  double diff_cubed = avg_difference * avg_difference * avg_difference;
+  for (int i = SG_window_oneside; i < n_points - SG_window_oneside; ++i) *(sg_3der_result+i) /= diff_cubed;
+  
+  
+  
+  // Find the max/min of the third derivative
+  double extrema[2] = {1e10,-1e10};
+  for (int i = SG_window_oneside; i < n_points - SG_window_oneside; ++i) {
+    if (*(sg_3der_result+i) < extrema[0]) extrema[0] = *(sg_3der_result+i);
+    if (*(sg_3der_result+i) > extrema[1]) extrema[1] = *(sg_3der_result+i);
+  }
+  std::cout << "min and max third der :: {" << extrema[0] << ',' << extrema[1] << "}" << std::endl;
   
   // Estimate the errors on the data
   // We assume the error on the voltage are roughly constant, see
@@ -142,9 +163,13 @@ void analyze_third_derivative() {
   // For some justification of this.
   double error_I[n_points];
   double coeff_error_I = 1e-4;
-  for (int i = 0; i < n_points; ++i) error_I[i] = coeff_error_I * array_I[i];
+  for (int i = 0; i < n_points; ++i) error_I[i] = coeff_error_I * array_I[i] / diff_cubed;
   
   // *---------------- Perform fit
+  
+  // Store the best parameters in the originally provided funtional form
+  //   { A, V_0, sigma, h }
+  double bestparams_baseform[4] = { 0 };
   
   
   // Definition of the data in TGraph fomat
@@ -153,35 +178,37 @@ void analyze_third_derivative() {
                                              sg_3der_result + SG_window_oneside,    // Current data
                                              error_V + SG_window_oneside,           // Voltage error
                                              error_I + SG_window_oneside);          // Current error
+  
+  
+  //  -------------------------------------------------------------------------------------------------------- Fitmode 1 (default)
+  // Attempt 1 ::
+  //   With no smoothing, direct implementation of fitting form
 #ifdef fit1
   // Functional form
-//  TF1* func_form = new TF1("DebrecenGaussFitForm",
-//                           "[0] * (2 - [3] * (x - [1])/([2]**2) ) * TMath::Exp(-(x - [1])**2/(2*[2]**2))",
-//                           array_V[0], array_V[n_points - 1]);
   TF1* func_form = new TF1("DebrecenGaussFitForm",
-                           "gaus(0) + [3] * (x - [1])/(2 * [2]**2) * gaus(0)",
+                           "[0] * (2 + [3] * (x - [1])/([2]**2) ) * TMath::Exp(-(x - [1])**2/(2*[2]**2))",
                            array_V[0], array_V[n_points - 1]);
   func_form->SetParNames("A","V0","#sigma","h");
   
   // fit lower and upper range limits
-  double fitrange[2] = {array_V[10], array_V[100]};
+  double fitrange[2] = {array_V[10], array_V[85]};
   std::cout << "Fitting in range [" << fitrange[0] << ',' << fitrange[1] << ']' << std::endl;
   
   // Initial guesses with reasonable values for the fitting
-  double Ainit = 9e-13;
+  double Ainit = 9e-13 / diff_cubed;
   double hinit = 0.7;
   double sinit = 0.11;
   double Vinit = 38.1;
   
-  double Arange[2] = {1e-13, 8e-12};
+  double Arange[2] = {1e-13 / diff_cubed, 8e-12 / diff_cubed};
   double Vrange[2] = {Vinit - 0.5, Vinit + 0.5};
   double srange[2] = {sinit - 0.05, sinit + 0.05};
-  double hrange[2] = {hinit - 0.1, hinit + 0.1};
+  double hrange[2] = {hinit - 1, hinit + 1};
   
-  func_form->SetParLimits(0, Arange[0], Arange[1]);
-  func_form->SetParLimits(1, Vrange[0], Vrange[1]);
-  func_form->SetParLimits(2, srange[0], srange[1]);
-  //  func_form->SetParLimits(3, hrange[0], hrange[1]);
+//  func_form->SetParLimits(0, Arange[0], Arange[1]);
+//  func_form->SetParLimits(1, Vrange[0], Vrange[1]);
+//  func_form->SetParLimits(2, srange[0], srange[1]);
+  func_form->SetParLimits(3, hrange[0], hrange[1]);
   
   
   // Generate arrays of points for fit scanning
@@ -218,6 +245,9 @@ void analyze_third_derivative() {
           TFitResultPtr fit_result = graph3der->Fit(func_form, "SMQN", "",fitrange[0], fitrange[1]);
 //          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMGFQ", "",fitrange[0], fitrange[1]).Get();
           if (fit_result->Chi2() <= 0) continue;
+          if (std::fabs(func_form->GetParameter(0)) > 1) continue;
+          
+          
           if (fit_result->Chi2() < best_chi2) {
             best_chi2 = fit_result->Chi2();
             std::cout << "New best chi2 found :: " << best_chi2 << std::endl;
@@ -229,14 +259,101 @@ void analyze_third_derivative() {
   
   
   func_form->SetParameters(best_params[0], best_params[1], best_params[2], best_params[3]);
- 
+  bestparams_baseform[0] = best_params[0];
+  bestparams_baseform[1] = best_params[1];
+  bestparams_baseform[2] = best_params[2];
+  bestparams_baseform[3] = best_params[3];
   
-  
-  
-#else
+  //  -------------------------------------------------------------------------------------------------------- Fitmode 2 (fixed peak ratio)
+#elifdef fit2
+  // Attempt 2 :: try to linearize the functions
+  //     A gaus + B (V - V0) gaus
   // Functional form
+  TF1* func_form = new TF1("DebrecenGaussFitForm",
+                           "[0] * TMath::Exp(-(x - [3])**2/(2*[2]**2)) + [1] * (x - [3]) * TMath::Exp(-(x - [3])**2/(2*[2]**2))",
+                           array_V[0], array_V[n_points - 1]);
+  func_form->SetParNames("A","V0","#sigma","h");
   
-  // Another approach?
+  // fit lower and upper range limits
+  double fitrange[2] = {array_V[10], array_V[80]};
+  std::cout << "Fitting in range [" << fitrange[0] << ',' << fitrange[1] << ']' << std::endl;
+  
+  // Initial guesses with reasonable values for the fitting
+  double Ainit = 9e-13;
+  double Binit = 9e-13;
+  double sinit = 0.11;
+  double Vinit = 38.1;
+  
+  double Arange[2] = {1e-14, 8e-12};
+  double Brange[2] = {1e-13, 8e-12};
+  double srange[2] = {sinit - 0.05, sinit + 0.05};
+  double Vrange[2] = {Vinit - 0.5, Vinit + 0.5};
+  
+//  func_form->SetParLimits(0, Arange[0], Arange[1]);
+//  func_form->SetParLimits(1, Brange[0], Brange[1]);
+//  func_form->SetParLimits(2, srange[0], srange[1]);
+//  func_form->SetParLimits(3, Vrange[0], Vrange[1]);
+  
+  
+  // Generate arrays of points for fit scanning
+  unsigned int npoints = 5;
+  std::vector<double> bins_A;
+  std::vector<double> bins_B;
+  std::vector<double> bins_s;
+  std::vector<double> bins_V;
+  for (int i = 1; i <= npoints; ++i) {
+    bins_A.push_back(Arange[0] + i * (Arange[1] - Arange[0]) / npoints);
+    bins_B.push_back(Brange[0] + i * (Brange[1] - Brange[0]) / npoints);
+    bins_s.push_back(srange[0] + i * (srange[1] - srange[0]) / npoints);
+    bins_V.push_back(Vrange[0] + i * (Vrange[1] - Vrange[0]) / npoints);
+  }
+  
+  
+  
+  
+  double best_chi2 = 1e10;
+  double best_params[4];
+  for (int iA = 0; iA < npoints; ++iA)
+    for (int iB = 0; iB < npoints; ++iB)
+      for (int is = 0; is < npoints; ++is)
+        for (int iV = 0; iV < npoints; ++iV) {
+          func_form->SetParameters(bins_A[iA], bins_B[iB], bins_s[is], bins_V[iV]);
+          
+          // Notes on options:
+          //   - S :: Return fit result pointer
+          //   -
+          // Notes on outputs
+          //   - {S, SMF} works but always hits the barrier on h.
+          //   - SMG fails
+          //
+          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMQN", "",fitrange[0], fitrange[1]);
+          //          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMGFQ", "",fitrange[0], fitrange[1]).Get();
+          if (fit_result->Chi2() <= 0) continue;
+          if (std::fabs(func_form->GetParameter(0)) > 1) continue;
+          
+          
+          if (fit_result->Chi2() < best_chi2) {
+            best_chi2 = fit_result->Chi2();
+            std::cout << "New best chi2 found :: " << best_chi2;
+            std::cout << " with params { ";
+            for (int iPar = 0; iPar < 4; ++iPar) {
+              best_params[iPar] = func_form->GetParameter(iPar);
+              std::cout << best_params[iPar] << ' ';
+            }std::cout << " }." << std::endl;
+          }
+        }// End of chi2 scan fitting
+  
+  
+  func_form->SetParameters(best_params[0], best_params[1], best_params[2], best_params[3]);
+  // A
+  bestparams_baseform[0] = best_params[0] / 2;
+  // V_0
+  bestparams_baseform[1] = best_params[3];
+  // sigma
+  bestparams_baseform[2] = best_params[2];
+  // h = 2sigma^2 * A' / B'
+  bestparams_baseform[3] = -2 * best_params[2] * best_params[2] * best_params[1] / best_params[0];
+  
   
   
 #endif
@@ -266,10 +383,22 @@ void analyze_third_derivative() {
   graph3der->SetLineColor(kBlack);
   graph3der->SetMarkerColor(kBlack);
   graph3der->SetMarkerStyle(6);
-  graph3der->GetYaxis()->SetRangeUser(-60e-12, 9e-11);
+  graph3der->GetYaxis()->SetRangeUser(-60e-12 / diff_cubed, 9e-11 / diff_cubed);
   graph3der->Draw("ap");
   func_form->Draw("same");
   obj_list->AddLast(graph3der);
+  
+  
+  // Add lines to denote the fitting region, resulting derivatives, etc.
+  
+  TLine* range_line = new TLine();
+  range_line->SetLineColor(kGray+2);
+  range_line->SetLineWidth(3);
+//  range_line->SetLineStyle(7);
+  
+  gPad->Update();
+  range_line->DrawLine(fitrange[0], 0.2 * gPad->GetUymin(), fitrange[0], 0.3 * gPad->GetUymax());
+  range_line->DrawLine(fitrange[1], 0.2 * gPad->GetUymin(), fitrange[1], 0.3 * gPad->GetUymax());
   
   
   // Draw some text giving info on the setup
@@ -278,6 +407,11 @@ void analyze_third_derivative() {
   drawText("#bf{ePIC} Test Stand", pad + gPad->GetLeftMargin(), 0.955, false, kBlack, 0.035);
   drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", pad + gPad->GetLeftMargin(), 0.915, false, kBlack, 0.035);
   drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 1 - pad - gPad->GetRightMargin(), 0.955, true, kBlack, 0.035);
+#ifdef fit1
+  drawText("Fitmode #it{default}", 1 - pad - gPad->GetRightMargin(), 0.915, true, kBlack, 0.035);
+#elifdef fit2
+  drawText("Fitmode #it{fixpeak}", 1 - pad - gPad->GetRightMargin(), 0.915, true, kBlack, 0.035);
+#endif
   
   // SiPM labels
   gCanvas_double->cd(1);
@@ -295,10 +429,10 @@ void analyze_third_derivative() {
   // Fit results
   char latex_fit_form[200] = "#frac{d^{3}I}{dV^{3}} = A #left(2 #minus #frac{h}{#sigma^{2}} (V #minus V_{0}) #right) Exp#left[#frac{#minus(V #minus V_{0})^{2}}{2#sigma^{2}} #right]";
   drawText(latex_fit_form, 0.07 + gPad->GetLeftMargin(), 0.90 - gPad->GetTopMargin(), false, kBlack, 0.035);
-  drawText(Form("A = %.4fE-12",func_form->GetParameter(0)*1e12), 0.05 + gPad->GetLeftMargin(), 0.83 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("h = %.4f",func_form->GetParameter(3)), 0.05 + gPad->GetLeftMargin(), 0.78 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("#sigma = %.4f",func_form->GetParameter(2)), 0.05 + gPad->GetLeftMargin(), 0.73 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("V_{0} = %.4f",func_form->GetParameter(1)), 0.05 + gPad->GetLeftMargin(), 0.67 - gPad->GetTopMargin(), false, kBlack, 0.04);
+  drawText(Form("A = %.4fE-6",bestparams_baseform[0]/1e-6), 0.05 + gPad->GetLeftMargin(), 0.83 - gPad->GetTopMargin(), false, kBlack, 0.04);
+  drawText(Form("h = %.4f",bestparams_baseform[3]), 0.05 + gPad->GetLeftMargin(), 0.78 - gPad->GetTopMargin(), false, kBlack, 0.04);
+  drawText(Form("#sigma = %.4f",bestparams_baseform[2]), 0.05 + gPad->GetLeftMargin(), 0.73 - gPad->GetTopMargin(), false, kBlack, 0.04);
+  drawText(Form("V_{0} = %.4f",bestparams_baseform[1]), 0.05 + gPad->GetLeftMargin(), 0.67 - gPad->GetTopMargin(), false, kBlack, 0.04);
   
   
   
@@ -324,81 +458,49 @@ void analyze_third_derivative() {
 
 // Get the Savitzky Golay coefficients for the relevant
 // polynomial order, interpolation window and
-double* getSavitzkyGolayCoefs3der(int poly_order,
-                                  int interp_window) {
+double* getSavitzkyGolayCoefs(int poly_order, 
+                              int interp_window,
+                              int nderivs) {
   double* coefs = static_cast<double*>(std::malloc(sizeof(double)*(2*interp_window + 1)));
   
-  switch (poly_order) {
-    case 1: case 2: // too small
-      break;
-    case 3: case 4: // 3rd, 4th
-      switch (interp_window) {
-        case 2:
-          coefs[0] = -1;
-          coefs[1] = 2;
-          coefs[2] = 0;
-          coefs[3] = -2;
-          coefs[4] = 1;
-          for (int i = 0; i < 2*interp_window + 1; ++i) coefs[i] /= 2.;
-          return coefs;
-        case 3:
-          coefs[0] = -1;
-          coefs[1] = 1;
-          coefs[2] = 1;
-          coefs[3] = 0;
-          coefs[4] = -1;
-          coefs[5] = -1;
-          coefs[6] = 1;
-          for (int i = 0; i < 2*interp_window + 1; ++i) coefs[i] /= 6.;
-          return coefs;
-        case 4:
-          coefs[0] = -14;
-          coefs[1] = 7;
-          coefs[2] = 13;
-          coefs[3] = 9;
-          coefs[4] = 0;
-          coefs[5] = -9;
-          coefs[6] = -13;
-          coefs[7] = -7;
-          coefs[8] = 14;
-          for (int i = 0; i < 2*interp_window + 1; ++i) coefs[i] /= 198.;
-          return coefs;
-        default:
-          break;
-      }break;
-    case 5: case 6: // 5th, 6th
-      switch (interp_window) {
-        case 3:
-          coefs[0] = 1;
-          coefs[1] = -8;
-          coefs[2] = 13;
-          coefs[3] = 0;
-          coefs[4] = -13;
-          coefs[5] = 8;
-          coefs[6] = -1;
-          for (int i = 0; i < 2*interp_window + 1; ++i) coefs[i] /= 8.;
-          return coefs;
-        case 4:
-          coefs[0] = 100;
-          coefs[1] = -457;
-          coefs[2] = 256;
-          coefs[3] = 459;
-          coefs[4] = 0;
-          coefs[5] = -459;
-          coefs[6] = -256;
-          coefs[7] = 457;
-          coefs[8] = -100;
-          for (int i = 0; i < 2*interp_window + 1; ++i) coefs[i] /= 1144.;
-          return coefs;
-        default:
-          break;
-      }break;
-    default:
-      break;
-  }// End of poly order switch
+  // Get data from file, where coefficients were computed in Mathematica
+  char file_SG_coefs[100];
+  snprintf(file_SG_coefs, 100, "sg_coefs/%ideriv.txt",nderivs);
+  std::ifstream SGfile(file_SG_coefs);
+  
+  std::string line;
+  while (std::getline(SGfile, line)) {
+    std::stringstream linestream(line);
+    std::string entry;
+    int r = line[2] - '0';
+    int k = line[7] - '0';
+    if (k == poly_order && r == interp_window) {
+      
+      // Report on the found data
+      std::getline(linestream, entry, '{');
+      std::getline(linestream, entry, '}');
+      std::string coefarray_string = entry;
+      std::getline(linestream, entry, ' ');
+      std::getline(linestream, entry);
+      std::cout << "SG Coefs for poly \033[31m" << poly_order << "\033[39m";
+      std::cout << ", window size \033[31m" << interp_window << "\033[39m";
+      std::cout << ", nderivs = \033[31m" << nderivs << "\033[39m :: {";
+      std::cout << coefarray_string << "} / " << entry << std::endl;
+      
+      // Assign coefficients and return
+      std::stringstream coefstream(coefarray_string);
+      double norm = std::stod(entry);
+      int i = 0;
+      while (getline(coefstream, entry, ',')) {
+        coefs[i] = std::stod(entry) / norm;
+        ++i;
+      }return coefs;
+    }// End of found coefficients
+  }// End of data loop
+  
   
   // default case: zeroes
-  std::cout << "\033[33mWarning\033[39m in <getSavitzkyGolayCoefs3der>: bad inputs!";
+  std::cout << "\033[33mWarning\033[39m in <getSavitzkyGolayCoefs>: bad inputs! ";
   std::cout << "An array of zero coefficients will be returned instead." << std::endl;
   for (int i = 0; i < 2*interp_window + 1; ++i) coefs[i] = 0;
   return coefs;

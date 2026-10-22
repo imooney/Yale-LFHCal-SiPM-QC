@@ -135,8 +135,8 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
   gReader->WriteCompressedFile(-1);
   
 //  // Plots with a summary of all trays to date
-//  makeIndexedTray(true);
-//  makeIndexedOutliers(true);
+  makeIndexedTray(true);
+  makeIndexedOutliers(true);
   makeCorrelationVbrOutliers(true);
 }// End of sipm_batch_summary_sheet::main
 
