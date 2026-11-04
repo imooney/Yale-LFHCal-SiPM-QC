@@ -46,6 +46,7 @@ void makeHist_SPS_Vbreakdown(bool flag_run_at_25_celcius = true);
 void makeIndexSeries(bool flag_run_at_25_celcius = true);
 void makeIndexDifference(bool flag_run_at_25_celcius = true);
 void makeCorrelationIVSPS(std::string tray, bool flag_run_at_25_celcius = true);
+void makeIndexTemperature(bool include_error_bands = true);
 
 // Indexed plots to display test data over all available trays together
 void makeIndexedTray(bool flag_run_at_25_celcius = true,
@@ -110,6 +111,7 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
   // Make series at ambient temp and 25C corrected
   makeIndexSeries(true);
   makeIndexSeries(false);
+  makeIndexTemperature();
   makeIndexDifference(true);
   makeIndexDifference(false);
 //  
@@ -181,6 +183,8 @@ void makeHist_IV_Vpeak(bool flag_run_at_25_celcius) {
   return;
 }
 
+
+
 // Construct histograms of IV V_breakdown for the trays in storage
 // Accesses data via global pointers in the header file
 //
@@ -195,6 +199,8 @@ void makeHist_IV_Vbreakdown(bool flag_run_at_25_celcius) {
   
   return;
 }
+
+
 
 // Draw a 2D correlation plot of the IV and SPS results of an input tray
 void makeCorrelationIVSPS(std::string tray, bool flag_run_at_25_celcius) {
@@ -377,6 +383,7 @@ void makeCorrelationIVSPS(std::string tray, bool flag_run_at_25_celcius) {
   
   return;
 }// End of sipm_batch_summary_sheet::makeCorrelationIV
+
 
 
 // Construct histograms of Dark Current for the trays in storage
@@ -600,7 +607,8 @@ void makeIndexSeries(bool flag_run_at_25_celcius) {
     int IV_size = gReader->GetIV()->at(i_tray)->IV_Vpeak->size();
     int SPS_size = gReader->GetSPS()->at(i_tray)->SPS_Vbd->size();
     if (IV_size != SPS_size) {
-      std::cout << "Warning in <sipm_batch_summary_sheet::makeIndexSeries>: SPS and IV arrays are unequal size!" << std::endl;
+      std::cout << "Warning in <sipm_batch_summary_sheet::makeIndexSeries>: SPS and IV arrays for tray ";
+      std::cout << gReader->GetTrayStrings()->at(i_tray) << " are of unequal size!" << std::endl;
       std::cout << "All data will be plotted and indices will be assumed regularly correlated, take caution that this is handled correctly." << std::endl;
     }
     
@@ -770,7 +778,8 @@ void makeIndexDifference(bool flag_run_at_25_celcius) {
     int IV_size = gReader->GetIV()->at(i_tray)->IV_Vpeak->size();
     int SPS_size = gReader->GetSPS()->at(i_tray)->SPS_Vbd->size();
     if (IV_size != SPS_size) {
-      std::cout << "Warning in <sipm_batch_summary_sheet::makeIndexSeries>: SPS and IV arrays are unequal size!" << std::endl;
+      std::cout << "Warning in <sipm_batch_summary_sheet::makeIndexDifference>: SPS and IV arrays for tray ";
+      std::cout << gReader->GetTrayStrings()->at(i_tray) << " are of unequal size!" << std::endl;
       std::cout << "All data will be plotted and indices will be assumed regularly correlated, take caution that this is handled correctly." << std::endl;
     }
     
@@ -880,6 +889,159 @@ void makeIndexDifference(bool flag_run_at_25_celcius) {
   
   return;
 }// End of sipm_batch_summary_sheet::makeIndexDifference
+
+
+
+// Construct a scatter plot of the real time temperature vs SiPM index for each SiPM tray
+// This is to check temperature uniformity
+void makeIndexTemperature(bool include_error_bands) {
+  
+  // Set up canvas
+  gCanvas_solo->Clear();
+  gCanvas_solo->SetCanvasSize(1000, 600);
+  gCanvas_solo->cd();
+  gPad->SetTicks(1,1);
+  gPad->SetRightMargin(0.02);
+  gPad->SetLeftMargin(0.08);
+  gPad->SetTopMargin(0.11);
+  
+  // Iterate over all available data
+  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
+    
+    int IV_size = gReader->GetIV()->at(i_tray)->IV_Vpeak->size();
+    int SPS_size = gReader->GetSPS()->at(i_tray)->SPS_Vbd->size();
+    if (IV_size != SPS_size) {
+      std::cout << "Warning in <sipm_batch_summary_sheet::makeIndexTemperature>: SPS and IV arrays for tray ";
+      std::cout << gReader->GetTrayStrings()->at(i_tray) << " are of unequal size!" << std::endl;
+      std::cout << "All data will be plotted and indices will be assumed regularly correlated, take caution that this is handled correctly." << std::endl;
+    }
+    
+    // Make histograms
+    TH1F* hist_indexed_temp_IV = new TH1F("hist_indexed_temp_IV",
+                                          ";SiPM index [flattened];Temperature [^{o}C]",
+                                          IV_size, 0, IV_size);
+    TH1F* hist_indexed_temp_SPS = new TH1F("hist_indexed_temp_SPS",
+                                           ";SiPM index [flattened];Temperature [^{o}C]",
+                                           SPS_size, 0, SPS_size);
+    
+    // Append all data
+    double temp_average[2] = {0};
+    int n_valid[2] = {0};
+    // IV
+    for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
+      if (gReader->GetIV()->at(i_tray)->avg_temp->at(i_IV - 1) < 0) continue;
+      
+      ++n_valid[0];
+      temp_average[0] += gReader->GetIV()->at(i_tray)->avg_temp->at(i_IV - 1);
+      hist_indexed_temp_IV->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->avg_temp->at(i_IV - 1));
+      hist_indexed_temp_IV->SetBinError(i_IV, gReader->GetIV()->at(i_tray)->stdev_temp->at(i_IV - 1));
+    }temp_average[0] /= n_valid[0];
+    
+    for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
+      if (gReader->GetSPS()->at(i_tray)->avg_temp->at(i_SPS - 1) < 0) continue;
+      
+      ++n_valid[1];
+      temp_average[1] += gReader->GetSPS()->at(i_tray)->avg_temp->at(i_SPS - 1);
+      hist_indexed_temp_SPS->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->avg_temp->at(i_SPS - 1));
+      hist_indexed_temp_SPS->SetBinError(i_SPS, gReader->GetSPS()->at(i_tray)->stdev_temp->at(i_SPS - 1));
+    }temp_average[1] /= n_valid[1];
+    
+    
+    // Set plot range--dynamically based on the results of the testing
+    double aspect_center = (temp_average[0] + temp_average[1])/2;
+    double tempplot_limits[2] = {
+      aspect_center - 2 + 1.5 * gReader->GetTrayModes()->at(i_tray),
+      aspect_center + 2 - 1.5 * gReader->GetTrayModes()->at(i_tray)
+    };
+    
+    
+    
+    // *-- plot histograms to represent the indexed SiPM test results
+    
+    // Set up the canvas/draw established hists
+    gCanvas_solo->cd();
+    hist_indexed_temp_IV->GetYaxis()->SetRangeUser(tempplot_limits[0], tempplot_limits[1]); // This line to comment out when swapping to temperature
+    hist_indexed_temp_IV->GetYaxis()->SetTitleOffset(1.15);
+    hist_indexed_temp_IV->SetMarkerColor(plot_colors[0]);
+    hist_indexed_temp_IV->SetMarkerStyle(20);
+    hist_indexed_temp_IV->Draw("hist p");
+    
+    hist_indexed_temp_SPS->SetMarkerColor(plot_colors[1]);
+    hist_indexed_temp_SPS->SetMarkerStyle(21);
+    
+    // Draw reference averaged +/- 50 MV lines
+    TLine* avg_line = new TLine();
+    
+//    // Average line: V_peak (IV)
+//    avg_line->SetLineColor(kBlack);
+//    avg_line->DrawLine(0, temp_average[0], IV_size, temp_average[0]);
+//    avg_line->SetLineColor(kGray+2);
+//    avg_line->SetLineStyle(7);
+//    avg_line->DrawLine(0, temp_average[0]+0.05, IV_size, temp_average[0]+0.05);
+//    avg_line->DrawLine(0, temp_average[0]-0.05, IV_size, temp_average[0]-0.05);
+//    
+//    // Average line: V_breakdown (SPS)
+//    avg_line->SetLineStyle(1);
+//    avg_line->SetLineColor(kBlack);
+//    avg_line->DrawLine(0, temp_average[1], IV_size, temp_average[1]);
+//    avg_line->SetLineColor(kGray+2);
+//    avg_line->SetLineStyle(7);
+//    avg_line->DrawLine(0, temp_average[1]+0.05, IV_size, temp_average[1]+0.05);
+//    avg_line->DrawLine(0, temp_average[1]-0.05, IV_size, temp_average[1]-0.05);
+    
+    if (gReader->GetTrayModes()->at(i_tray) == 0) {
+      // Cassette test lines
+      TLine* cassette_line = new TLine();
+      cassette_line->SetLineColor(kGray+1);
+      cassette_line->SetLineStyle(6);
+      for (int i = 1; i <= 14; ++i) cassette_line->DrawLine(32*i, tempplot_limits[0], 32*i, tempplot_limits[1]);
+    }
+    
+    // assure points sit on top of lines
+    hist_indexed_temp_IV->Draw("hist p same");
+    hist_indexed_temp_SPS->Draw("hist p same");
+    
+    // Legend for labeling the two V_breakdown measurement types
+    float leg_extra_space = -0.2;
+    TLegend* vbd_legend = new TLegend(0.635, 0.36 + leg_extra_space, 0.90, 0.55 + leg_extra_space);
+    vbd_legend->SetLineWidth(0);
+    vbd_legend->SetTextSize(0.05);
+    vbd_legend->AddEntry(hist_indexed_temp_IV,  "IV Temperature",  "p e1");
+    vbd_legend->AddEntry(hist_indexed_temp_SPS, "SPS Temperature", "p e1");
+    vbd_legend->Draw();
+    
+    // Legend for the lines marking tray average, test sets
+//    TLegend* line_legend = new TLegend(0.15, 0.315 + leg_extra_space, 0.45, 0.55 + leg_extra_space);
+//    line_legend->SetLineWidth(0);
+//    hist_indexed_temp_IV->SetLineColor(kBlack);
+//    if (flag_use_all_trays_for_averages) line_legend->AddEntry(hist_indexed_temp_IV, "Average over all trays", "l");
+//    else                                 line_legend->AddEntry(hist_indexed_temp_IV, "Average over tray", "l");
+//    line_legend->AddEntry(avg_line, "Average #pm 50mV", "l");
+//    line_legend->AddEntry(cassette_line, "Test Runs (32 SiPM per test)", "l");
+//    line_legend->Draw();
+    
+    
+    // Draw some text giving info on the setup
+    char string_setupmode_long[2][20] = {"Cassette", "Robotic"};
+    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.91, false, kBlack, 0.04);
+    drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.955, false, kBlack, 0.04);
+    drawText(Form("Hamamatsu #bf{%s} Tray #%s", Hamamatsu_SiPM_Code, gReader->GetTrayStrings()->at(i_tray).c_str()), 0.98, 0.95, true, kBlack, 0.045);
+    drawText(Form("SiPMs Measured with #color[2]{%s} Test Stand", string_setupmode_long[gReader->GetTrayModes()->at(i_tray)]), 0.98, 0.905, true, kBlack, 0.035);
+    
+    
+    //save histograms
+    char string_errors[2][10] = {"noerr","error"};
+    gCanvas_solo->SaveAs(Form("../plots/single_plots/indexed_temp/%s_%s_indexed_%s.pdf",
+                              gReader->GetTrayStrings()->at(i_tray).c_str(),
+                              string_testmode[gReader->GetTrayModes()->at(i_tray)],
+                              string_errors[include_error_bands]));
+    
+    delete hist_indexed_temp_IV;
+    delete hist_indexed_temp_SPS;
+  }
+  
+  return;
+}// End of sipm_batch_summary_sheet::makeIndexTemperature
 
 
 

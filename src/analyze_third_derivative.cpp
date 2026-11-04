@@ -12,29 +12,38 @@
 //    - 09/14/2026    : Created by Ryan Hamilton
 //  *--
 
+#include <filesystem>
 #include "global_vars.hpp"
 #include "lib_debrecen_IV/IVBinaryFile.h"
+#include "SiPMDataReader.hpp"
+#include "sipm_analysis_helper.hpp"
 
 // Toggle between fit modes:
 //    fit1 :: Default (as described in ref. with 3rd der from SG, no smoothing)
-//    fit2 :: fixpeak (ratio of peak heights constrained to reduce fitting space)
-#define fit1
+//    fit2 :: fixpeak (fit only to peaks, and use the extracted peaks to solve for parameters)
+#define fit2
 
 //========================================================================== Global Variables
 
-// Base relative location of IV binary files
-char bin_base_directory[100] = "../data/IV_bin/production/robot_production";
 
 // Switch to use DMM or SMU voltage measurement
 bool use_DMM_over_SMU = true;
 char voltage_type_str[2][5] = {"SMU","DMM"};
+double voltplot_limits_static[2] = {30.95, 39.3};
+const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected to 25C","Temperature corrected to 25C"};
 
 // Controls for the Savitzky-Golay filter
-int SG_poly_order = 6;
-int SG_window_oneside = 7; // Full convolution window size is 2r + 1
+int SG_poly_order = 3;
+int SG_window_oneside = 5; // Full convolution window size is 2r + 1
+const int nsmooths = 3;
+
+// Controlls for gaussian fit in fixpeak mode
+int nbin_fit_range_gauss = 3;
 
 // Debug flag
 bool _debug = false;
+bool _print_fit_info = false;
+bool _make_solo_plots = false;
 
 
 // Root global pointers
@@ -53,18 +62,19 @@ double* performListConvolution(double* listA, int sizeA,
 //========================================================================== Macro Main
 void analyze_third_derivative() {
   
+  // ----------------------------------------------------------------- Canvas setup
+  
   // Initialize canvases
   gStyle->SetOptStat(0);
+  gErrorIgnoreLevel = kWarning;
   
   TObjArray* obj_list = new TObjArray();
   gCanvas_solo = new TCanvas();
   gPad->SetTicks(1,1);
-  obj_list->AddLast(gCanvas_solo);
   
   gCanvas_double = new TCanvas();
   gCanvas_double->SetCanvasSize(1000, 500);
   gCanvas_double->Divide(2, 1);
-  obj_list->AddLast(gCanvas_double);
   
   gCanvas_double->cd(1);
   gPad->SetTicks(1,1);
@@ -86,373 +96,788 @@ void analyze_third_derivative() {
   
   
   
-  // ----------------------------------------------------------------- Read IV data from binary file
-  
-  // Initialize the IV reader class with a sample output file
-  char trayno[15] = "250821-1305";
-  int row_index = 0;
-  int col_index = 0;
-  char fulldir[200];
-  snprintf(fulldir, 200, "%s/%s/binaries/IV_%s_%i_%i.bin", bin_base_directory, trayno, trayno, row_index, col_index);
-  IVBinaryFile* reader = new IVBinaryFile(fulldir);
-  
-  
-  // Load in the values to the array
-  uint32_t n_points = reader->NFineMeasurements();
-  double* array_I = reader->FineCurrent();
-  double* array_V;
-  if (use_DMM_over_SMU) array_V = reader->FineVoltage();
-  else                  array_V = reader->FineVoltageSMU();
-  
-  // Debug print
-  if (_debug) {
-    reader->Print();
-    for (int i = 0; i < n_points; ++i) {
-      std::cout << "(I,V) = {" << *(array_I + i) << ",\t" << *(array_V + i) << "}." << std::endl;
-    }
-  }// End of debug print
-  
-  // Convert current from mA to A
-  for (int i = 0; i < n_points; ++i) *(array_I+i) *= 1e-3;
-  
-  
-  // ----------------------------------------------------------------- Computing and fitting the 3rd derivative
-  
+  // ----------------------------------------------------------------- Setup that should be done only once outside the SiPM loop
   
   // Get the convolution kernel for the desired SG filter
   int ntotal_sg_coefs = 2*SG_window_oneside + 1;
   double* sg_coefs = getSavitzkyGolayCoefs(SG_poly_order, SG_window_oneside, 3);
-  
   std::cout << "SG convolution kernel : { ";
   for (int c = 0; c < ntotal_sg_coefs; ++c) {
     std::cout << sg_coefs[c] << ' ';
-  }std::cout << " }." << std::endl;
+  }std::cout << "}." << std::endl;
   
-  // Perform the convolution to estimate the third derivative
-  double* sg_3der_result = performListConvolution(array_I, n_points, sg_coefs, ntotal_sg_coefs);
+  // And for smoothing, if desired
+  double* sg_smooth = getSavitzkyGolayCoefs(SG_poly_order, SG_window_oneside, 0);
+  std::cout << "SG smoothing kernel : { ";
+  for (int c = 0; c < ntotal_sg_coefs; ++c) {
+    std::cout << sg_coefs[c] << ' ';
+  }std::cout << "}." << std::endl;
   
-  // Scale by the finite difference cubed to make it a proper derivative
-  double avg_difference = 0;
-  for (int i = 1; i < n_points; ++i) {
-    avg_difference += *(array_V + i) - *(array_V + i - 1);
-  }avg_difference /= (n_points - 1);
-  
-  double diff_cubed = avg_difference * avg_difference * avg_difference;
-  for (int i = SG_window_oneside; i < n_points - SG_window_oneside; ++i) *(sg_3der_result+i) /= diff_cubed;
-  
-  
-  
-  // Find the max/min of the third derivative
-  double extrema[2] = {1e10,-1e10};
-  for (int i = SG_window_oneside; i < n_points - SG_window_oneside; ++i) {
-    if (*(sg_3der_result+i) < extrema[0]) extrema[0] = *(sg_3der_result+i);
-    if (*(sg_3der_result+i) > extrema[1]) extrema[1] = *(sg_3der_result+i);
-  }
-  std::cout << "min and max third der :: {" << extrema[0] << ',' << extrema[1] << "}" << std::endl;
-  
-  // Estimate the errors on the data
-  // We assume the error on the voltage are roughly constant, see
-  // https://www.testequipmenthq.com/datasheets/NATIONAL%20INSTRUMENTS-PXIE-4081-Datasheet.pdf
-  double error_V[n_points];
-  double error_V_const = 0.005;
-  for (int i = 0; i < n_points; ++i) error_V[i] = error_V_const;
-  
-  // For the current, assume the error is proportional to the current,
-  // Again see pg. 8 of the spec sheet in ref.
-  // https://www.testequipmenthq.com/datasheets/NATIONAL%20INSTRUMENTS-PXIE-4081-Datasheet.pdf
-  // For some justification of this.
-  double error_I[n_points];
-  double coeff_error_I = 1e-4;
-  for (int i = 0; i < n_points; ++i) error_I[i] = coeff_error_I * array_I[i] / diff_cubed;
-  
-  // *---------------- Perform fit
-  
-  // Store the best parameters in the originally provided funtional form
-  //   { A, V_0, sigma, h }
-  double bestparams_baseform[4] = { 0 };
+  // Set up the SiPM data reader
+  const char* traylist_identifier = "production";
+  SiPMDataReader* finalReader = new SiPMDataReader();
+  finalReader->SetSubDirectory(traylist_identifier);
+  finalReader->ReadFile(Form("../data/batch_traylist_%s.txt",traylist_identifier));
+  finalReader->ReadDataIV();
+  finalReader->ReadDataSPS();
   
   
-  // Definition of the data in TGraph fomat
-  TGraphErrors* graph3der = new TGraphErrors(n_points - 2*SG_window_oneside,        // Number of sample points
-                                             array_V + SG_window_oneside,           // Voltage data
-                                             sg_3der_result + SG_window_oneside,    // Current data
-                                             error_V + SG_window_oneside,           // Voltage error
-                                             error_I + SG_window_oneside);          // Current error
+  // Set up histograms for fit parameters
+  int ntotal_SiPMs[2] = {0};
+  int ntotal_goodfits[2] = {0};
+  int nbin_params = 100;
+  TH1D* hist_params[2][4];
+  char string_robotmode[2][20] = {"cassette","robot"};
+  int color_robotmode[2] = {kBlue + 2, kRed + 2};
+  for (int i_robot = 0; i_robot < 2; ++i_robot) {
+    hist_params[i_robot][0] = new TH1D(Form("hist_A_%s", string_robotmode[i_robot]), 
+                                       ";A [A / V^{3}];1/N^{fit} dN^{fit}/dA",
+                              nbin_params, 0, 1.2e-6);
+    hist_params[i_robot][0]->SetLineColor(color_robotmode[i_robot]);
+    hist_params[i_robot][0]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    hist_params[i_robot][1] = new TH1D(Form("hist_V_%s", string_robotmode[i_robot]), 
+                                       ";V_{01} [V];1/N^{fit} dN^{fit}/dV",
+                              nbin_params, 37.5, 39.5);
+    hist_params[i_robot][1]->SetLineColor(color_robotmode[i_robot]);
+    hist_params[i_robot][1]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    hist_params[i_robot][2] = new TH1D(Form("hist_s_%s", string_robotmode[i_robot]), 
+                                       ";#sigma [V];1/N^{fit} dN^{fit}/d#sigma",
+                              nbin_params, 0.105, 0.16);
+    hist_params[i_robot][2]->SetLineColor(color_robotmode[i_robot]);
+    hist_params[i_robot][2]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    // For h, make a log-normal scale instead
+    double range_h[2] = {1e-1, 1e5};
+    std::vector<double> vector_log_binedge = std::vector<double>();
+    double logbinedge[2] = {TMath::Log(range_h[0]), TMath::Log(range_h[1])};
+    double delta_log_binedge = (logbinedge[1] - logbinedge[0]) / nbin_params;
+    for (int i = 0; i <= nbin_params; ++i) vector_log_binedge.push_back(TMath::Exp(logbinedge[0] + i * delta_log_binedge));
+    hist_params[i_robot][3] = new TH1D(Form("hist_h_%s", string_robotmode[i_robot]), 
+                                       ";h [V];1/N^{fit} dN^{fit}/dh",
+                              nbin_params, vector_log_binedge.data());
+    hist_params[i_robot][3]->SetLineColor(color_robotmode[i_robot]);
+    hist_params[i_robot][3]->SetMarkerColor(color_robotmode[i_robot]);
+  }// End of parameter histogram setup
   
+  // ----------------------------------------------------------------- Start of SiPM loop
   
-  //  -------------------------------------------------------------------------------------------------------- Fitmode 1 (default)
-  // Attempt 1 ::
-  //   With no smoothing, direct implementation of fitting form
+  bool drawn_text = false;
+  for (int i_tray = 0; i_tray < finalReader->GetTrayStrings()->size(); ++i_tray) {
+    
+    // *----------------- Set up / check key directories
+    std::cout << "Beginning analysis for tray number " << finalReader->GetTrayStrings()->at(i_tray) << std::endl;
+    const char* trayno = finalReader->GetTrayStrings()->at(i_tray).c_str();
+    
+    // Check if this tray is robot or cassette data
+    bool is_robot = (1 == finalReader->GetTrayModes()->at(i_tray));
+    // Base relative location of IV binary files
+    char bin_base_directory[100];
+    snprintf(bin_base_directory, 100, "../data/IV_bin/production/%s_production",string_robotmode[is_robot]);\
+    
+    
+    // Stat input directory for this tray
+    char basedir[100];
+    snprintf(basedir, 100, "%s/%s/binaries", bin_base_directory, trayno);
+    struct stat check_dir;
+    if (stat(basedir, &check_dir) != 0) {
+      std::cout << "\033[31mError\033[39m :: Failed to find binary directory for tray {" << trayno << "}." << std::endl;
+      continue;
+    }
+    
+    // Stat output directories for this tray
+    char outdir[100];
+    snprintf(outdir, 100, "../plots/3rdder/%s", trayno);
+    if (stat(basedir, &check_dir) == 0) {
+      std::filesystem::create_directory(outdir);
+      
+      char subdirs[1][100];
+      snprintf(subdirs[0], 100, "%s/%s_%ismooth", outdir, string_robotmode[is_robot], nsmooths);
+      for (int i = 0; i < 1; ++i) {
+        std::filesystem::create_directory(subdirs[i]);
+      }
+      std::cout << "Successfully created directories for tray number \033[32m" << trayno << "\033[39m." << std::endl;
+    }// End of out directory construction
+    
+    
+    // Set up arrays to keep track of the estimated Vbd across the tray
+    double parm_A[460];
+    double parm_V[460];
+    double parm_s[460];
+    double parm_h[460];
+    
+    
+    // Begin SiPM loop for this tray
+    for (int i_SiPM = 0; i_SiPM < 460; ++i_SiPM) {
+      
+      // ----------------------------------------------------------------- Read IV data from binary file
+      
+      // Stat the desired file to check the data exists
+      int row_index = i_SiPM / 20;
+      int col_index = i_SiPM % 20;
+      char fulldir[200];
+      snprintf(fulldir, 200, "%s/IV_%s_%i_%i.bin", basedir, trayno, row_index, col_index);
+      
+      struct stat check_file;
+      if (stat(fulldir, &check_file) != 0 || (check_file.st_mode & S_IFDIR)) {
+        std::cout << "\033[33mSkipping\033[39m SiPM (" << col_index << ',' << row_index << ")[" << i_SiPM;
+        std::cout << "] :: No binary file found." << std::endl;
+        continue;
+      }
+      
+      ++ntotal_SiPMs[is_robot];
+      
+      // Initialize the IV reader class with a sample output file
+      IVBinaryFile* reader = new IVBinaryFile(fulldir);
+      
+      
+      // Load in the values to the array
+      uint32_t n_points = reader->NFineMeasurements();
+      double* array_I = reader->FineCurrent();
+      double* array_V;
+      if (use_DMM_over_SMU) array_V = reader->FineVoltage();
+      else                  array_V = reader->FineVoltageSMU();
+      
+      
+      // Debug print
+      if (_debug) {
+        reader->Print();
+        for (int i = 0; i < n_points; ++i) {
+          std::cout << "(I,V) = {" << *(array_I + i) << ",\t" << *(array_V + i) << "}." << std::endl;
+        }
+      }// End of debug print
+      
+      // Convert current from mA to A
+      // TODO understand if this is correct
+      for (int i = 0; i < n_points; ++i) *(array_I+i) *= 1e-3;
+      
+      
+      // ----------------------------------------------------------------- Computing the 3rd Derivative with SG Coefficients
+      
+      
+      // Perform the convolution to estimate the third derivative
+      double* sg_3der_result = performListConvolution(array_I, n_points, sg_coefs, ntotal_sg_coefs);
+      
+      // Smooth as many times as specified in the settings
+      for (int s = 0; s < nsmooths; ++s) sg_3der_result = performListConvolution(sg_3der_result, n_points, sg_smooth, ntotal_sg_coefs);
+      
+      
+      // Scale by the finite difference cubed to make it a proper derivative
+      double avg_difference = 0;
+      for (int i = 1; i < n_points; ++i) {
+        avg_difference += *(array_V + i) - *(array_V + i - 1);
+      }avg_difference /= (n_points - 1);
+      
+      double diff_cubed = avg_difference * avg_difference * avg_difference;
+      for (int i = SG_window_oneside; i < n_points - SG_window_oneside; ++i) *(sg_3der_result+i) /= diff_cubed;
+      
+      
+      // Find the max/min of the third derivative
+      double extrema[2] = {1e10,-1e10};
+      for (int i = SG_window_oneside; i < n_points - SG_window_oneside; ++i) {
+        if (*(sg_3der_result+i) < extrema[0]) extrema[0] = *(sg_3der_result+i);
+        if (*(sg_3der_result+i) > extrema[1]) extrema[1] = *(sg_3der_result+i);
+      }
+      if (_debug) std::cout << "min and max third der :: {" << extrema[0] << ',' << extrema[1] << "}" << std::endl;
+      
+      
+      // Estimate the errors on the data
+      // We assume the error on the voltage are roughly constant, see
+      // https://www.testequipmenthq.com/datasheets/NATIONAL%20INSTRUMENTS-PXIE-4081-Datasheet.pdf
+      double error_V[n_points];
+      double error_V_const = 0.005;
+      for (int i = 0; i < n_points; ++i) error_V[i] = error_V_const;
+      
+      // For the current, assume the error is proportional to the current,
+      // Again see pg. 8 of the spec sheet in ref.
+      // https://www.testequipmenthq.com/datasheets/NATIONAL%20INSTRUMENTS-PXIE-4081-Datasheet.pdf
+      // For some justification of this.
+      double error_I[n_points];
+      double coeff_error_I = 1e-4;
+      for (int i = 0; i < n_points; ++i) error_I[i] = coeff_error_I * array_I[i] / diff_cubed;
+      
+      
+      
+      // *---------------- Set up fit form, ROOT format data to fit against
+      
+      // Store the best parameters in the originally provided funtional form
+      //   { A, V_0, sigma, h }
+      double bestparams_baseform[4] = { 0 };
+      TF1* func_form = new TF1("DebrecenGaussFitForm",
+                               "[0] * (2 + [3] * (x - [1])/([2]**2) ) * TMath::Exp(-(x - [1])**2/(2*[2]**2))",
+                               array_V[0], array_V[n_points - 1]);
+      func_form->SetParNames("A","V0","#sigma","h");
+      
+      
+      // fit lower and upper range limits
+      double fitrange[2] = {array_V[10], array_V[85]};
+      if (_debug) std::cout << "Fitting in range [" << fitrange[0] << ',' << fitrange[1] << ']' << std::endl;
+      
+      
+      // Definition of the data in TGraph fomat
+      TGraphErrors* graph3der = new TGraphErrors(n_points - 2*SG_window_oneside,        // Number of sample points
+                                                 array_V + SG_window_oneside,           // Voltage data
+                                                 sg_3der_result + SG_window_oneside,    // Current data
+                                                 error_V + SG_window_oneside,           // Voltage error
+                                                 error_I + SG_window_oneside);          // Current error
+      
+      
+      //  -------------------------------------------------------------------------------------------------------- Fitmode 1 (default)
+      // Attempt 1 ::
+      //   With no smoothing, direct implementation of fitting form
 #ifdef fit1
-  // Functional form
-  TF1* func_form = new TF1("DebrecenGaussFitForm",
-                           "[0] * (2 + [3] * (x - [1])/([2]**2) ) * TMath::Exp(-(x - [1])**2/(2*[2]**2))",
-                           array_V[0], array_V[n_points - 1]);
-  func_form->SetParNames("A","V0","#sigma","h");
-  
-  // fit lower and upper range limits
-  double fitrange[2] = {array_V[10], array_V[85]};
-  std::cout << "Fitting in range [" << fitrange[0] << ',' << fitrange[1] << ']' << std::endl;
-  
-  // Initial guesses with reasonable values for the fitting
-  double Ainit = 9e-13 / diff_cubed;
-  double hinit = 0.7;
-  double sinit = 0.11;
-  double Vinit = 38.1;
-  
-  double Arange[2] = {1e-13 / diff_cubed, 8e-12 / diff_cubed};
-  double Vrange[2] = {Vinit - 0.5, Vinit + 0.5};
-  double srange[2] = {sinit - 0.05, sinit + 0.05};
-  double hrange[2] = {hinit - 1, hinit + 1};
-  
-//  func_form->SetParLimits(0, Arange[0], Arange[1]);
-//  func_form->SetParLimits(1, Vrange[0], Vrange[1]);
-//  func_form->SetParLimits(2, srange[0], srange[1]);
-  func_form->SetParLimits(3, hrange[0], hrange[1]);
-  
-  
-  // Generate arrays of points for fit scanning
-  unsigned int npoints = 5;
-  std::vector<double> bins_A;
-  std::vector<double> bins_h;
-  std::vector<double> bins_s;
-  std::vector<double> bins_V;
-  for (int i = 1; i <= npoints; ++i) {
-    bins_A.push_back(Arange[0] + i * (Arange[1] - Arange[0]) / npoints);
-    bins_h.push_back(hrange[0] + i * (hrange[1] - hrange[0]) / npoints);
-    bins_s.push_back(srange[0] + i * (srange[1] - srange[0]) / npoints);
-    bins_V.push_back(Vrange[0] + i * (Vrange[1] - Vrange[0]) / npoints);
-  }
-  
-  
-  
-  
-  double best_chi2 = 1e10;
-  double best_params[4];
-  for (int iA = 0; iA < npoints; ++iA)
-    for (int ih = 0; ih < npoints; ++ih)
-      for (int is = 0; is < npoints; ++is)
-        for (int iV = 0; iV < npoints; ++iV) {
-          func_form->SetParameters(bins_A[iA], bins_V[iV], bins_s[is], bins_h[ih]);
-          
-          // Notes on options:
-          //   - S :: Return fit result pointer
-          //   -
-          // Notes on outputs
-          //   - {S, SMF} works but always hits the barrier on h.
-          //   - SMG fails
-          //
-          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMQN", "",fitrange[0], fitrange[1]);
-//          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMGFQ", "",fitrange[0], fitrange[1]).Get();
-          if (fit_result->Chi2() <= 0) continue;
-          if (std::fabs(func_form->GetParameter(0)) > 1) continue;
-          
-          
-          if (fit_result->Chi2() < best_chi2) {
-            best_chi2 = fit_result->Chi2();
-            std::cout << "New best chi2 found :: " << best_chi2 << std::endl;
-            for (int iPar = 0; iPar < 4; ++iPar) {
-              best_params[iPar] = func_form->GetParameter(iPar);
-            }
-          }
-  }// End of chi2 scan fitting
-  
-  
-  func_form->SetParameters(best_params[0], best_params[1], best_params[2], best_params[3]);
-  bestparams_baseform[0] = best_params[0];
-  bestparams_baseform[1] = best_params[1];
-  bestparams_baseform[2] = best_params[2];
-  bestparams_baseform[3] = best_params[3];
-  
-  //  -------------------------------------------------------------------------------------------------------- Fitmode 2 (fixed peak ratio)
+      
+      // Initial guesses with reasonable values for the fitting
+      double Ainit = 9e-13 / diff_cubed;
+      double hinit = 0.7;
+      double sinit = 0.11;
+      double Vinit = 38.1;
+      
+      double Arange[2] = {1e-13 / diff_cubed, 8e-12 / diff_cubed};
+      double Vrange[2] = {Vinit - 0.5, Vinit + 0.5};
+      double srange[2] = {sinit - 0.05, sinit + 0.05};
+      double hrange[2] = {hinit - 1, hinit + 1};
+      
+      //  func_form->SetParLimits(0, Arange[0], Arange[1]);
+      //  func_form->SetParLimits(1, Vrange[0], Vrange[1]);
+      //  func_form->SetParLimits(2, srange[0], srange[1]);
+      func_form->SetParLimits(3, hrange[0], hrange[1]);
+      
+      
+      // Generate arrays of points for fit scanning
+      unsigned int npoints = 5;
+      std::vector<double> bins_A;
+      std::vector<double> bins_h;
+      std::vector<double> bins_s;
+      std::vector<double> bins_V;
+      for (int i = 1; i <= npoints; ++i) {
+        bins_A.push_back(Arange[0] + i * (Arange[1] - Arange[0]) / npoints);
+        bins_h.push_back(hrange[0] + i * (hrange[1] - hrange[0]) / npoints);
+        bins_s.push_back(srange[0] + i * (srange[1] - srange[0]) / npoints);
+        bins_V.push_back(Vrange[0] + i * (Vrange[1] - Vrange[0]) / npoints);
+      }
+      
+      
+      
+      
+      double best_chi2 = 1e10;
+      double best_params[4];
+      for (int iA = 0; iA < npoints; ++iA)
+        for (int ih = 0; ih < npoints; ++ih)
+          for (int is = 0; is < npoints; ++is)
+            for (int iV = 0; iV < npoints; ++iV) {
+              func_form->SetParameters(bins_A[iA], bins_V[iV], bins_s[is], bins_h[ih]);
+              
+              // Notes on options:
+              //   - S :: Return fit result pointer
+              //   -
+              // Notes on outputs
+              //   - {S, SMF} works but always hits the barrier on h.
+              //   - SMG fails
+              //
+              TFitResultPtr fit_result = graph3der->Fit(func_form, "SMQN", "",fitrange[0], fitrange[1]);
+              //          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMGFQ", "",fitrange[0], fitrange[1]).Get();
+              if (fit_result->Chi2() <= 0) continue;
+              if (std::fabs(func_form->GetParameter(0)) > 1) continue;
+              
+              
+              if (fit_result->Chi2() < best_chi2) {
+                best_chi2 = fit_result->Chi2();
+                std::cout << "New best chi2 found :: " << best_chi2 << std::endl;
+                for (int iPar = 0; iPar < 4; ++iPar) {
+                  best_params[iPar] = func_form->GetParameter(iPar);
+                }
+              }
+            }// End of chi2 scan fitting
+      
+      
+      func_form->SetParameters(best_params[0], best_params[1], best_params[2], best_params[3]);
+      bestparams_baseform[0] = best_params[0];
+      bestparams_baseform[1] = best_params[1];
+      bestparams_baseform[2] = best_params[2];
+      bestparams_baseform[3] = best_params[3];
+      
+      //  -------------------------------------------------------------------------------------------------------- Fitmode 2 (fixed peak position solver)
 #elifdef fit2
-  // Attempt 2 :: try to linearize the functions
-  //     A gaus + B (V - V0) gaus
-  // Functional form
-  TF1* func_form = new TF1("DebrecenGaussFitForm",
-                           "[0] * TMath::Exp(-(x - [3])**2/(2*[2]**2)) + [1] * (x - [3]) * TMath::Exp(-(x - [3])**2/(2*[2]**2))",
-                           array_V[0], array_V[n_points - 1]);
-  func_form->SetParNames("A","V0","#sigma","h");
-  
-  // fit lower and upper range limits
-  double fitrange[2] = {array_V[10], array_V[80]};
-  std::cout << "Fitting in range [" << fitrange[0] << ',' << fitrange[1] << ']' << std::endl;
-  
-  // Initial guesses with reasonable values for the fitting
-  double Ainit = 9e-13;
-  double Binit = 9e-13;
-  double sinit = 0.11;
-  double Vinit = 38.1;
-  
-  double Arange[2] = {1e-14, 8e-12};
-  double Brange[2] = {1e-13, 8e-12};
-  double srange[2] = {sinit - 0.05, sinit + 0.05};
-  double Vrange[2] = {Vinit - 0.5, Vinit + 0.5};
-  
-//  func_form->SetParLimits(0, Arange[0], Arange[1]);
-//  func_form->SetParLimits(1, Brange[0], Brange[1]);
-//  func_form->SetParLimits(2, srange[0], srange[1]);
-//  func_form->SetParLimits(3, Vrange[0], Vrange[1]);
-  
-  
-  // Generate arrays of points for fit scanning
-  unsigned int npoints = 5;
-  std::vector<double> bins_A;
-  std::vector<double> bins_B;
-  std::vector<double> bins_s;
-  std::vector<double> bins_V;
-  for (int i = 1; i <= npoints; ++i) {
-    bins_A.push_back(Arange[0] + i * (Arange[1] - Arange[0]) / npoints);
-    bins_B.push_back(Brange[0] + i * (Brange[1] - Brange[0]) / npoints);
-    bins_s.push_back(srange[0] + i * (srange[1] - srange[0]) / npoints);
-    bins_V.push_back(Vrange[0] + i * (Vrange[1] - Vrange[0]) / npoints);
-  }
-  
-  
-  
-  
-  double best_chi2 = 1e10;
-  double best_params[4];
-  for (int iA = 0; iA < npoints; ++iA)
-    for (int iB = 0; iB < npoints; ++iB)
-      for (int is = 0; is < npoints; ++is)
-        for (int iV = 0; iV < npoints; ++iV) {
-          func_form->SetParameters(bins_A[iA], bins_B[iB], bins_s[is], bins_V[iV]);
-          
-          // Notes on options:
-          //   - S :: Return fit result pointer
-          //   -
-          // Notes on outputs
-          //   - {S, SMF} works but always hits the barrier on h.
-          //   - SMG fails
-          //
-          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMQN", "",fitrange[0], fitrange[1]);
-          //          TFitResultPtr fit_result = graph3der->Fit(func_form, "SMGFQ", "",fitrange[0], fitrange[1]).Get();
-          if (fit_result->Chi2() <= 0) continue;
-          if (std::fabs(func_form->GetParameter(0)) > 1) continue;
-          
-          
-          if (fit_result->Chi2() < best_chi2) {
-            best_chi2 = fit_result->Chi2();
-            std::cout << "New best chi2 found :: " << best_chi2;
-            std::cout << " with params { ";
-            for (int iPar = 0; iPar < 4; ++iPar) {
-              best_params[iPar] = func_form->GetParameter(iPar);
-              std::cout << best_params[iPar] << ' ';
-            }std::cout << " }." << std::endl;
-          }
-        }// End of chi2 scan fitting
-  
-  
-  func_form->SetParameters(best_params[0], best_params[1], best_params[2], best_params[3]);
-  // A
-  bestparams_baseform[0] = best_params[0] / 2;
-  // V_0
-  bestparams_baseform[1] = best_params[3];
-  // sigma
-  bestparams_baseform[2] = best_params[2];
-  // h = 2sigma^2 * A' / B'
-  bestparams_baseform[3] = -2 * best_params[2] * best_params[2] * best_params[1] / best_params[0];
-  
-  
-  
+      
+      // Determine the fit region for the first peak as:
+      //  -> The largest point below the midpoint of the data sample,
+      //     so that numerical noise in the large region does not snatch the peak away
+      int fit_baseline[2] = {0};
+      for (int i = SG_window_oneside; i < n_points/2 + SG_window_oneside; ++i)
+        if (*(sg_3der_result+i) > *(sg_3der_result+fit_baseline[0])) fit_baseline[0] = i;
+      if (_debug) {
+        std::cout << "Positive peak fit baseline at point (" << *(array_V + fit_baseline[0]);
+        std::cout << ',' << *(sg_3der_result+fit_baseline[0]) << ")." << std::endl;
+      }
+      
+      // The baseline for the second peak is given as
+      //  -> The smallest point within +0.5V region of the first baseline
+      for (int i = fit_baseline[0]; i < fit_baseline[0] + 20; ++i) {
+        if (i >= n_points) {
+          std::cout << "\033[31mWarning\033[39m :: Flagged max is within 0.5V of upper limit in range!! Check fits!" << std::endl;
+          return;
+          // TODO wrap goto that skips to next SiPM.
+        }
+        if (*(sg_3der_result+i) < *(sg_3der_result+fit_baseline[1])) fit_baseline[1] = i;
+      }
+      if (_debug) {
+        std::cout << "Negative peak fit baseline at point (" << *(array_V + fit_baseline[1]);
+        std::cout << ',' << *(sg_3der_result+fit_baseline[1]) << ")." << std::endl;
+      }
+      
+      
+      // Perform fits to extract the largest peak
+      TF1* peak_fit_gauss[2];
+      peak_fit_gauss[0] = new TF1("gauss_fit_pos",
+                                  "[0] * TMath::Exp(-(x - [1])**2/(2*[2]**2))",
+                                  array_V[fit_baseline[0] - nbin_fit_range_gauss],
+                                  array_V[fit_baseline[0] + nbin_fit_range_gauss]);
+      peak_fit_gauss[0]->SetParameters(*(sg_3der_result+fit_baseline[0]), array_V[fit_baseline[0]], 0.1);
+      graph3der->Fit(peak_fit_gauss[0], "MQN", "",
+                     array_V[fit_baseline[0] - nbin_fit_range_gauss],
+                     array_V[fit_baseline[0] + nbin_fit_range_gauss]);
+      
+      // Perform fits to extract the negative valley
+      peak_fit_gauss[1] = new TF1("gauss_fit_neg",
+                                  "[0] * TMath::Exp(-(x - [1])**2/(2*[2]**2))",
+                                  array_V[fit_baseline[1] - nbin_fit_range_gauss],
+                                  array_V[fit_baseline[1] + nbin_fit_range_gauss]);
+      peak_fit_gauss[1]->SetParameters(*(sg_3der_result+fit_baseline[1]), array_V[fit_baseline[1]], 0.1);
+      graph3der->Fit(peak_fit_gauss[1], "MQN", "",
+                     array_V[fit_baseline[1] - nbin_fit_range_gauss],
+                     array_V[fit_baseline[1] + nbin_fit_range_gauss]);
+      
+      // Gather and report on the peak positions
+      double peak_pos[2][2] = {
+        {peak_fit_gauss[0]->GetParameter(1), peak_fit_gauss[0]->GetParameter(0)},
+        {peak_fit_gauss[1]->GetParameter(1), peak_fit_gauss[1]->GetParameter(0)},
+      };
+      if (_print_fit_info) {
+        std::cout << "Extracted peak positions :: +(\033[31m";
+        std::cout << peak_pos[0][0] << "\033[39m,\033[33m" << peak_pos[0][1] << "\033[39m), -(\033[31m";
+        std::cout << peak_pos[1][0] << "\033[39m,\033[33m" << peak_pos[1][1] << "\033[39m)." << std::endl;
+      }
+      
+      // Extract the ratio z = sigma / h from the ratio of peak heights function
+      TF1* func_peak_ratio = new TF1("func_peak_ratio",
+                                     "-(1 + 2*(x**2) * (1 + TMath::Sqrt(1 + 1/x**2) ) ) * TMath::Exp(2*(x**2) * TMath::Sqrt(1 + 1/x**2) )",
+                                     0, 100);
+//      TF1* func_peak_ratio = new TF1("func_peak_ratio",
+//                                     "-(1 + 2/(x**2) * (1 + TMath::Sqrt(1 + x**2) ) ) * TMath::Exp(2/(x**2) * TMath::Sqrt(1 + x**2) )",
+//                                     0.2, 1000);
+      
+      double hratio = peak_pos[0][1] / peak_pos[1][1]; // pos peak / neg peak
+      if (hratio > -1.0) {// Failed fit -- outside the real domain of the inverse
+        parm_A[i_SiPM] = -999;
+        parm_V[i_SiPM] = -999;
+        parm_s[i_SiPM] = -999;
+        parm_h[i_SiPM] = -999;
+        continue;
+      }
+      
+      double z_root = func_peak_ratio->GetX(hratio);
+//      double z_root = 1./func_peak_ratio->GetX(hratio);
+      if (_print_fit_info) {
+        std::cout << "Height ratio from fit :: h+/h- = \033[31m" << hratio << "\033[39m -> ";
+        std::cout << "sigma / h = \033[32m" << z_root << "\033[39m"<< std::endl;
+      }
+      
+      // From this, all parameters of the fit form are uniquely constrained to pass through the desired points.
+      //   { A, V_0, sigma, h }
+      bestparams_baseform[0] = z_root * TMath::Exp(z_root * z_root) * TMath::Sqrt(- TMath::E() * peak_pos[0][1] * peak_pos[1][1]);
+      bestparams_baseform[2] = (peak_pos[1][0] - peak_pos[0][0]) / (2 * TMath::Sqrt(1 + z_root * z_root));
+      bestparams_baseform[3] = -bestparams_baseform[2] / z_root;
+      bestparams_baseform[1] = 0.5*(peak_pos[1][0] + peak_pos[0][0]) - z_root * bestparams_baseform[2];
+      func_form->SetParameters(bestparams_baseform[0], bestparams_baseform[1], bestparams_baseform[2], bestparams_baseform[3]);
+      
+      // record for later tray plotting
+      ++ntotal_goodfits[is_robot];
+      parm_A[i_SiPM] = bestparams_baseform[0];
+      parm_V[i_SiPM] = bestparams_baseform[1];
+      parm_s[i_SiPM] = bestparams_baseform[2];
+      parm_h[i_SiPM] = -bestparams_baseform[3];
+      for (int p = 0; p < 3; ++p) hist_params[is_robot][p]->Fill(bestparams_baseform[p]);
+      hist_params[is_robot][3]->Fill(-bestparams_baseform[3]);
+      
+      if (_print_fit_info) {
+        std::cout << "Best parameters :: {";
+        std::cout << "A = \033[33m" << bestparams_baseform[0] << "\033[39m, ";
+        std::cout << "mu = \033[33m" << bestparams_baseform[1] << "\033[39m, ";
+        std::cout << "sigma = \033[33m" << bestparams_baseform[2] << "\033[39m, ";
+        std::cout << "h = \033[32m" << bestparams_baseform[3] << "\033[39m}." << std::endl;
+      }
 #endif
-  
-  
-  // TODO SiPM data reader to access debrecen results
-  
-  
-  // ----------------------------------------------------------------- Plotting (Individual SiPM level)
-  
-  // Make a root plot of the IV, third derivative measurements
-  gCanvas_double->cd(1);
-  gPad->SetLogy();
-  TGraph* graphIVdata = new TGraph(n_points, array_V, array_I);
-  graphIVdata->SetName(Form("graphIV_%s_%s_%i_%i",trayno,voltage_type_str[use_DMM_over_SMU],row_index,col_index));
-  graphIVdata->SetTitle(Form(";%s Voltage [V];Current [A]",voltage_type_str[use_DMM_over_SMU]));
-  graphIVdata->SetLineColor(kBlue);
-  graphIVdata->SetMarkerColor(kBlack);
-  graphIVdata->SetMarkerStyle(6);
-  graphIVdata->Draw("apc");
-  obj_list->AddLast(graphIVdata);
-  
-  // Draw the third derivative estimate and corresponding fit
-  gCanvas_double->cd(2);
-  graph3der->SetName(Form("graph3der_%s_%s_%i_%i",trayno,voltage_type_str[use_DMM_over_SMU],row_index,col_index));
-  graph3der->SetTitle(Form(";%s Voltage [V];3^{rd} Derivative d^{3}I/dV^{3} [A / V^{3}]",voltage_type_str[use_DMM_over_SMU]));
-  graph3der->SetLineColor(kBlack);
-  graph3der->SetMarkerColor(kBlack);
-  graph3der->SetMarkerStyle(6);
-  graph3der->GetYaxis()->SetRangeUser(-60e-12 / diff_cubed, 9e-11 / diff_cubed);
-  graph3der->Draw("ap");
-  func_form->Draw("same");
-  obj_list->AddLast(graph3der);
-  
-  
-  // Add lines to denote the fitting region, resulting derivatives, etc.
-  
-  TLine* range_line = new TLine();
-  range_line->SetLineColor(kGray+2);
-  range_line->SetLineWidth(3);
-//  range_line->SetLineStyle(7);
-  
-  gPad->Update();
-  range_line->DrawLine(fitrange[0], 0.2 * gPad->GetUymin(), fitrange[0], 0.3 * gPad->GetUymax());
-  range_line->DrawLine(fitrange[1], 0.2 * gPad->GetUymin(), fitrange[1], 0.3 * gPad->GetUymax());
-  
-  
-  // Draw some text giving info on the setup
-  gCanvas_double->cd();
-  double pad = 0.005;
-  drawText("#bf{ePIC} Test Stand", pad + gPad->GetLeftMargin(), 0.955, false, kBlack, 0.035);
-  drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", pad + gPad->GetLeftMargin(), 0.915, false, kBlack, 0.035);
-  drawText(Form("Hamamatsu #bf{%s}", Hamamatsu_SiPM_Code), 1 - pad - gPad->GetRightMargin(), 0.955, true, kBlack, 0.035);
+      // *---------------- End of fitting
+      
+      
+      if (_make_solo_plots) {
+        
+        
+        // ----------------------------------------------------------------- Plotting (Individual SiPM level)
+        
+        // Make a root plot of the IV, third derivative measurements
+        gCanvas_double->cd(1);
+        gPad->SetLogy();
+        TGraph* graphIVdata = new TGraph(n_points, array_V, array_I);
+        graphIVdata->SetName(Form("graphIV_%s_%s_%i_%i",trayno,voltage_type_str[use_DMM_over_SMU],row_index,col_index));
+        graphIVdata->SetTitle(Form(";%s Voltage [V];Current [A]",voltage_type_str[use_DMM_over_SMU]));
+        graphIVdata->SetLineColor(kBlue);
+        graphIVdata->SetMarkerColor(kBlack);
+        graphIVdata->SetMarkerStyle(6);
+        graphIVdata->Draw("apc");
+        obj_list->AddLast(graphIVdata);
+        
+        // Draw the third derivative estimate and corresponding fit
+        gCanvas_double->cd(2);
+        double rangemult = 2 - is_robot;
+        graph3der->SetName(Form("graph3der_%s_%s_%i_%i",trayno,voltage_type_str[use_DMM_over_SMU],row_index,col_index));
+        graph3der->SetTitle(Form(";%s Voltage [V];3^{rd} Derivative d^{3}I/dV^{3} [A / V^{3}]",voltage_type_str[use_DMM_over_SMU]));
+        graph3der->SetLineColor(kBlack);
+        graph3der->SetMarkerColor(kBlack);
+        graph3der->SetMarkerStyle(6);
+        graph3der->GetYaxis()->SetRangeUser(-60e-12 / diff_cubed * rangemult, 9e-11 / diff_cubed * rangemult);
+        graph3der->Draw("ap");
+        func_form->Draw("same");
+        obj_list->AddLast(graph3der);
+        
+        
+        
+        // Draw elements specific to each fit mode
 #ifdef fit1
-  drawText("Fitmode #it{default}", 1 - pad - gPad->GetRightMargin(), 0.915, true, kBlack, 0.035);
+        
+        // Add lines to denote the fitting region, resulting derivatives, etc.
+        TLine* range_line = new TLine();
+        range_line->SetLineColor(kGray+2);
+        range_line->SetLineWidth(3);
+        //  range_line->SetLineStyle(7);
+        gPad->Update();
+        range_line->DrawLine(fitrange[0], 0.2 * gPad->GetUymin(), fitrange[0], 0.3 * gPad->GetUymax());
+        range_line->DrawLine(fitrange[1], 0.2 * gPad->GetUymin(), fitrange[1], 0.3 * gPad->GetUymax());
 #elifdef fit2
-  drawText("Fitmode #it{fixpeak}", 1 - pad - gPad->GetRightMargin(), 0.915, true, kBlack, 0.035);
+        TLine* peak_line = new TLine();
+        peak_line->SetLineColor(kGray+2);
+        peak_line->SetLineStyle(7);
+        
+        // Draw gaussian peak fits for each peak
+        for (int i = 0; i < 2; ++i) {
+          peak_fit_gauss[i]->SetLineColorAlpha(kAzure+2, 0.5);
+          peak_fit_gauss[i]->SetLineStyle(1);
+          peak_fit_gauss[i]->SetLineWidth(2);
+          peak_fit_gauss[i]->Draw("same");
+          
+          peak_line->DrawLine(peak_fit_gauss[i]->GetParameter(1), 0,
+                              peak_fit_gauss[i]->GetParameter(1), 1.3*peak_fit_gauss[i]->GetParameter(0));
+        }// End of gauss peak drawing
 #endif
+        
+        // Draw some text giving info on the setup
+        gCanvas_double->cd();
+        double pad = 0.005;
+        if (!drawn_text) {
+          drawText("#bf{ePIC} Test Stand", pad + gPad->GetLeftMargin(), 0.955, false, kBlack, 0.035);
+          drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", pad + gPad->GetLeftMargin(), 0.915, false, kBlack, 0.035);
+#ifdef fit1
+          drawText("Fitmode #it{default}", 1 - pad - gPad->GetRightMargin(), 0.915, true, kBlack, 0.035);
+#elifdef fit2
+          drawText("Fitmode #it{fixpeak}", 1 - pad - gPad->GetRightMargin(), 0.915, true, kBlack, 0.035);
+#endif
+          
+          
+          drawn_text = true;
+        }// End of single use draw
+        
+        // Draw parameter text, should be cleared on each iteration
+        obj_list->AddLast(drawText(Form("Hamamatsu #bf{%s} [#color[2]{%s}]",
+                                        Hamamatsu_SiPM_Code,
+                                        string_robotmode[is_robot]),
+                                   1 - pad - gPad->GetRightMargin(), 0.955, true, kBlack, 0.035));
+        
+        // SiPM labels
+        gCanvas_double->cd(1);
+        obj_list->AddLast(drawText(Form("Tray #%s",trayno), 0.05 + gPad->GetLeftMargin(), 0.92 - gPad->GetTopMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("SiPM (%i,%i)",row_index,col_index), 0.05 + gPad->GetLeftMargin(), 0.88 - gPad->GetTopMargin(), false, kBlack, 0.04));
+        
+        // SG filter settings
+        gCanvas_double->cd(2);
+        //  drawText(Form("Tray #%s",trayno), 0.95 - gPad->GetRightMargin(), 0.82 - gPad->GetTopMargin(), true, kBlack, 0.04);
+        //  drawText(Form("SiPM (%i,%i)",row_index,col_index), 0.95 - gPad->GetRightMargin(), 0.78 - gPad->GetTopMargin(), true, kBlack, 0.04);
+        obj_list->AddLast(drawText("SG Settings ::", 0.05 + gPad->GetLeftMargin(), 0.20 + gPad->GetBottomMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("Poly. order = %i",SG_poly_order), 0.07 + gPad->GetLeftMargin(), 0.15 + gPad->GetBottomMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("Conv. window = %i",2*SG_window_oneside+1), 0.07 + gPad->GetLeftMargin(), 0.10 + gPad->GetBottomMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("# Smooths = %i",nsmooths), 0.07 + gPad->GetLeftMargin(), 0.05 + gPad->GetBottomMargin(), false, kBlack, 0.04));
+        
+        // Fit results
+        char latex_fit_form[200] = "#frac{d^{3}I}{dV^{3}} = A #left(2 #minus #frac{h}{#sigma^{2}} (V #minus V_{0}) #right) Exp#left[#frac{#minus(V #minus V_{0})^{2}}{2#sigma^{2}} #right]";
+        obj_list->AddLast(drawText(latex_fit_form, 0.07 + gPad->GetLeftMargin(), 0.90 - gPad->GetTopMargin(), false, kBlack, 0.035));
+        obj_list->AddLast(drawText(Form("A = %.4fE-6",bestparams_baseform[0]/1e-6), 0.05 + gPad->GetLeftMargin(), 0.83 - gPad->GetTopMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("h = %.4f",-bestparams_baseform[3]), 0.05 + gPad->GetLeftMargin(), 0.78 - gPad->GetTopMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("#sigma = %.4f",bestparams_baseform[2]), 0.05 + gPad->GetLeftMargin(), 0.73 - gPad->GetTopMargin(), false, kBlack, 0.04));
+        obj_list->AddLast(drawText(Form("V_{0} = %.4f",bestparams_baseform[1]), 0.05 + gPad->GetLeftMargin(), 0.67 - gPad->GetTopMargin(), false, kBlack, 0.04));
+#ifdef fit2
+        obj_list->AddLast(drawText(Form("h_{+}/h_{-} = %.8f",hratio), 0.90 - gPad->GetRightMargin(), 0.81 - gPad->GetTopMargin(), true, kBlack, 0.04));
+#endif
+        
+        
+        // Save the canvas
+        gCanvas_double->SaveAs(Form("%s/%s_%ismooth/IV_%s_3rdder_%s_%i_%i.pdf",
+                                    outdir,
+                                    string_robotmode[is_robot],
+                                    nsmooths,
+                                    voltage_type_str[use_DMM_over_SMU],
+                                    trayno,
+                                    row_index,
+                                    col_index));
+      }// End of plotting
+      
+      // Delete dynamically initialzied objects in this loop
+      delete reader;
+      TObjArrayIter TObj_iter(obj_list);
+      while (TNamed* data_obj = (TNamed*)TObj_iter.Next()) delete data_obj;
+      obj_list->Clear();
+      
+//      if (i_SiPM > 20) break; // debug one sipm
+    }// End of SiPM loop for this tray
+    
+    
+    
+    
+    // ----------------------------------------------------------------- Compare against extracted Debrecen results
+    
+    
+    
+    // Set up canvas
+    gCanvas_solo->Clear();
+    gCanvas_solo->SetCanvasSize(1500, 600);
+    gCanvas_solo->cd();
+    gPad->SetTicks(1,1);
+    gPad->SetRightMargin(0.02);
+    gPad->SetLeftMargin(0.06);
+    gPad->SetTopMargin(0.11);
+    
+      
+    int IV_size = gReader->GetIV()->at(i_tray)->IV_Vpeak->size();
+    int SPS_size = gReader->GetSPS()->at(i_tray)->SPS_Vbd->size();
+    if (IV_size != SPS_size) {
+      std::cout << "Warning in <sipm_batch_summary_sheet::makeIndexSeries>: SPS and IV arrays for tray ";
+      std::cout << gReader->GetTrayStrings()->at(i_tray) << " are of unequal size!" << std::endl;
+      std::cout << "All data will be plotted and indices will be assumed regularly correlated, take caution that this is handled correctly." << std::endl;
+    }
+    
+    // Make histograms
+    bool flag_run_at_25_celcius = false;
+    TH1F* hist_indexed_Vpeak = new TH1F("hist_indexed_Vpeak",
+                                        ";SiPM index [flattened];V_{br} [V]",
+                                        IV_size, 0, IV_size);
+    TH1F* hist_indexed_3derV = new TH1F("hist_indexed_3derV",
+                                        ";SiPM index [flattened];V_{br} [V]",
+                                        IV_size, 0, IV_size);
+    TH1F* hist_indexed_3derH = new TH1F("hist_indexed_3derH",
+                                        ";SiPM index [flattened];V_{br} [V]",
+                                        IV_size, 0, IV_size);
+    
+    TH1F* hist_indexed_Vbreakdown = new TH1F("hist_indexed_Vbreakdown",
+                                             ";SiPM index [flattened];V_{br} [V]",
+                                             SPS_size, 0, SPS_size);
+    
+    // Append all data
+    if (flag_run_at_25_celcius) {
+      for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
+        hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_IV - 1));
+        hist_indexed_3derV->SetBinContent(i_IV, parm_V[i_IV - 1]);
+        hist_indexed_3derH->SetBinContent(i_IV, parm_V[i_IV - 1] - parm_h[i_IV - 1]);
+      }
+      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
+        hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SPS - 1));
+      }
+    } else {
+      for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
+        hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV - 1));
+        hist_indexed_3derV->SetBinContent(i_IV, parm_V[i_IV - 1]);
+        hist_indexed_3derH->SetBinContent(i_IV, parm_V[i_IV - 1] - parm_h[i_IV - 1]);
+      }
+      for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
+        hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+      }
+    }
+    
+    // Gather average V_bd for the tray
+    double avg_voltages[2];
+    if (flag_use_all_trays_for_averages) {
+      avg_voltages[0] = getAvgVpeakAllTrays(flag_run_at_25_celcius); //IV
+      avg_voltages[1] = getAvgVbreakdownAllTrays(flag_run_at_25_celcius); //SPS
+    } else {
+      avg_voltages[0] = getAvgVpeak(i_tray, flag_run_at_25_celcius); //IV
+      avg_voltages[1] = getAvgVbreakdown(i_tray, flag_run_at_25_celcius); //SPS
+    }
+    
+    // Set plot range--dynamically based on the results of the testing
+    double aspect_separation = (avg_voltages[0] - avg_voltages[1])/0.55;
+    double voltplot_limits[2] = {
+      avg_voltages[1] - 0.2 *aspect_separation,
+      avg_voltages[0] + 0.25*aspect_separation
+    };
+    
+    //Debug
+    //    std::cout << "Average Vbr :: IV = " << avg_voltages[0] << ", SPS = " << avg_voltages[1] << "]." << std::endl;
+    //    std::cout << "Voltplot limits :: [" << voltplot_limits[0] << ',' << voltplot_limits[1] << "]." << std::endl;
+    
+    if (voltplot_limits[1] - voltplot_limits[0] < 0.25) {
+      voltplot_limits[0] = voltplot_limits_static[0];
+      voltplot_limits[1] = voltplot_limits_static[1];
+    }
+    
+    // *-- plot histograms to represent the indexed SiPM test results
+    
+    // Set up the canvas/draw established hists
+    gCanvas_solo->cd();
+    hist_indexed_Vpeak->GetYaxis()->SetRangeUser(voltplot_limits[0], voltplot_limits[1]); // This line to comment out when swapping to temperature
+    hist_indexed_Vpeak->GetYaxis()->SetTitleOffset(0.85);
+    hist_indexed_Vpeak->SetMarkerColor(plot_colors[0]);
+    hist_indexed_Vpeak->SetMarkerStyle(20);
+    hist_indexed_Vpeak->Draw("hist p");
+    
+    hist_indexed_Vbreakdown->SetMarkerColor(plot_colors[1]);
+    hist_indexed_Vbreakdown->SetMarkerStyle(21);
+    
+    hist_indexed_3derV->SetMarkerColor(kRed + 2);
+    hist_indexed_3derV->SetMarkerStyle(24);
+    
+    hist_indexed_3derH->SetMarkerColor(kBlue + 2);
+    hist_indexed_3derH->SetMarkerStyle(25);
+    
+    // Draw reference averaged +/- 50 MV lines
+    TLine* avg_line = new TLine();
+    
+    // Average line: V_peak (IV)
+    avg_line->SetLineColor(kBlack);
+    avg_line->DrawLine(0, avg_voltages[0], IV_size, avg_voltages[0]);
+    avg_line->SetLineColor(kGray+2);
+    avg_line->SetLineStyle(7);
+    avg_line->DrawLine(0, avg_voltages[0]+0.05, IV_size, avg_voltages[0]+0.05);
+    avg_line->DrawLine(0, avg_voltages[0]-0.05, IV_size, avg_voltages[0]-0.05);
+    
+    // Average line: V_breakdown (SPS)
+    avg_line->SetLineStyle(1);
+    avg_line->SetLineColor(kBlack);
+    avg_line->DrawLine(0, avg_voltages[1], IV_size, avg_voltages[1]);
+    avg_line->SetLineColor(kGray+2);
+    avg_line->SetLineStyle(7);
+    avg_line->DrawLine(0, avg_voltages[1]+0.05, IV_size, avg_voltages[1]+0.05);
+    avg_line->DrawLine(0, avg_voltages[1]-0.05, IV_size, avg_voltages[1]-0.05);
+    
+    // Cassette test lines
+    TLine* cassette_line = new TLine();
+    cassette_line->SetLineColor(kGray+1);
+    cassette_line->SetLineStyle(6);
+    for (int i = 1; i <= 14; ++i) cassette_line->DrawLine(32*i, voltplot_limits[0], 32*i, voltplot_limits[1]);
+    
+    // assure points sit on top of lines
+    hist_indexed_Vpeak->Draw("hist p same");
+    hist_indexed_Vbreakdown->Draw("hist p same");
+    hist_indexed_3derV->Draw("hist p same");
+    hist_indexed_3derH->Draw("hist p same");
+    
+    // Legend for labeling the two V_breakdown measurement types
+    float leg_extra_space = 0;
+    if (flag_run_at_25_celcius) leg_extra_space = 0.04;
+    TLegend* vbd_legend = new TLegend(0.635, 0.36 + leg_extra_space, 0.90, 0.51 + leg_extra_space);
+    vbd_legend->SetLineWidth(0);
+    vbd_legend->AddEntry(hist_indexed_Vpeak,       Form("IV V_{bd} #kern[0.3]{(#color[2]{%i} outliers)}",
+                                                        countOutliersVpeak(i_tray, flag_run_at_25_celcius)), "p");
+    vbd_legend->AddEntry(hist_indexed_Vbreakdown,  Form("SPS V_{bd} #kern[0.1]{(#color[2]{%i} outliers)}",
+                                                        countOutliersVbreakdown(i_tray, flag_run_at_25_celcius)), "p");
+    vbd_legend->AddEntry(hist_indexed_3derV, "3^{rd} Der. V_{01}", "p");
+    vbd_legend->Draw();
+    
+    // Legend for the lines marking tray average, test sets
+    TLegend* line_legend = new TLegend(0.15, 0.315 + leg_extra_space, 0.45, 0.55 + leg_extra_space);
+    line_legend->SetLineWidth(0);
+    hist_indexed_Vpeak->SetLineColor(kBlack);
+    if (flag_use_all_trays_for_averages) line_legend->AddEntry(hist_indexed_Vpeak, "Average over all trays", "l");
+    else                                 line_legend->AddEntry(hist_indexed_Vpeak, "Average over tray", "l");
+    line_legend->AddEntry(avg_line, "Average #pm 50mV", "l");
+    line_legend->AddEntry(cassette_line, "Test Runs (32 SiPM per test)", "l");
+    line_legend->Draw();
+    
+    
+    // Draw some text giving info on the setup
+    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.06, 0.91, false, kBlack, 0.045);
+    drawText("#bf{ePIC} Test Stand", 0.06, 0.955, false, kBlack, 0.045);
+    drawText(Form("Hamamatsu #bf{%s} Tray #%s", Hamamatsu_SiPM_Code, gReader->GetTrayStrings()->at(i_tray).c_str()), 0.98, 0.95, true, kBlack, 0.05);
+    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.98, 0.905, true, kBlack, 0.04);
+    
+    
+    //save histograms
+    gCanvas_solo->SaveAs(Form("%s/indexed_%s_%ismooth.pdf",
+                              outdir,
+                              string_robotmode[is_robot],
+                              nsmooths));
+    
+    
+    delete hist_indexed_Vpeak;
+    delete hist_indexed_Vbreakdown;
+    delete hist_indexed_3derV;
+    delete hist_indexed_3derH;
+    
+    
+    // debug one tray
+//    if (i_tray > 0) break;
+  }// End of tray loop
   
-  // SiPM labels
-  gCanvas_double->cd(1);
-  drawText(Form("Tray #%s",trayno), 0.05 + gPad->GetLeftMargin(), 0.92 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("SiPM (%i,%i)",row_index,col_index), 0.05 + gPad->GetLeftMargin(), 0.88 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  
-  // SG filter settings
-  gCanvas_double->cd(2);
-//  drawText(Form("Tray #%s",trayno), 0.95 - gPad->GetRightMargin(), 0.82 - gPad->GetTopMargin(), true, kBlack, 0.04);
-//  drawText(Form("SiPM (%i,%i)",row_index,col_index), 0.95 - gPad->GetRightMargin(), 0.78 - gPad->GetTopMargin(), true, kBlack, 0.04);
-  drawText("SG Settings ::", 0.05 + gPad->GetLeftMargin(), 0.20 + gPad->GetBottomMargin(), false, kBlack, 0.04);
-  drawText(Form("Poly. order = %i",SG_poly_order), 0.05 + gPad->GetLeftMargin(), 0.15 + gPad->GetBottomMargin(), false, kBlack, 0.04);
-  drawText(Form("Conv. window = %i",2*SG_window_oneside+1), 0.05 + gPad->GetLeftMargin(), 0.10 + gPad->GetBottomMargin(), false, kBlack, 0.04);
-  
-  // Fit results
-  char latex_fit_form[200] = "#frac{d^{3}I}{dV^{3}} = A #left(2 #minus #frac{h}{#sigma^{2}} (V #minus V_{0}) #right) Exp#left[#frac{#minus(V #minus V_{0})^{2}}{2#sigma^{2}} #right]";
-  drawText(latex_fit_form, 0.07 + gPad->GetLeftMargin(), 0.90 - gPad->GetTopMargin(), false, kBlack, 0.035);
-  drawText(Form("A = %.4fE-6",bestparams_baseform[0]/1e-6), 0.05 + gPad->GetLeftMargin(), 0.83 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("h = %.4f",bestparams_baseform[3]), 0.05 + gPad->GetLeftMargin(), 0.78 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("#sigma = %.4f",bestparams_baseform[2]), 0.05 + gPad->GetLeftMargin(), 0.73 - gPad->GetTopMargin(), false, kBlack, 0.04);
-  drawText(Form("V_{0} = %.4f",bestparams_baseform[1]), 0.05 + gPad->GetLeftMargin(), 0.67 - gPad->GetTopMargin(), false, kBlack, 0.04);
   
   
   
-  // Save the canvas
-  gCanvas_double->SaveAs(Form("../plots/3rdder/singlesipm/%s/IV_%s_3rdder_%s_%i_%i.pdf",
-                              trayno,
-                              voltage_type_str[use_DMM_over_SMU],
-                              trayno,
-                              row_index,
-                              col_index));
+  // Plot final histogram of coefficients
+  TCanvas* canvas_quad = new TCanvas("canvas_quad","canvas_quad",1000,1000);
+  canvas_quad->Divide(2,2);
+  for (int p = 0; p < 4; ++p) {
+    canvas_quad->cd(p + 1);
+    gPad->SetLeftMargin(0.15);
+    gPad->SetTicks(1,1);
+    
+    hist_params[0][p]->Scale(1./ntotal_goodfits[0], "width");
+    hist_params[1][p]->Scale(1./ntotal_goodfits[1], "width");
+    
+    hist_params[0][p]->GetYaxis()->SetRangeUser(0, 1.15*TMath::Max(hist_params[0][p]->GetMaximum(), hist_params[1][p]->GetMaximum()));
+    hist_params[0][p]->Draw("hist");
+    hist_params[1][p]->Draw("hist same");
+    
+  }canvas_quad->cd(4);
+  gPad->SetLogx();
+  
+  canvas_quad->cd(1);
+  TLegend* leg = new TLegend(0.5, 0.6, 0.85, 0.85);
+  leg->SetLineWidth(0);
+  leg->AddEntry(hist_params[0][0], "Cassette", "l");
+  leg->AddEntry(hist_params[1][0], "Robot", "l");
+  leg->Draw();
+  
+  canvas_quad->cd();
+  drawText(Form("Total successful fits: #color[%i]{%i/%i}, #color[%i]{%i/%i}",
+                color_robotmode[0],ntotal_goodfits[0], ntotal_SiPMs[0],
+                color_robotmode[1],ntotal_goodfits[1], ntotal_SiPMs[1]), 0.05, 0.97, false, kBlack, 0.02);
+  
+  canvas_quad->SaveAs("../plots/3rdder/3rdder_param_hist.pdf");
   
   
-  // Delete dynamically initialzied objects and return
-  delete reader;
-  TObjArrayIter TObj_iter(obj_list);
-  while (TNamed* data_obj = (TNamed*)TObj_iter.Next()) delete data_obj;
+  // Final memory clear and return
+  delete finalReader;
   delete obj_list;
+  delete gCanvas_solo;
+  delete gCanvas_double;
   std::free(sg_coefs);
   return;
 }// End of analyze_thrid_derivative::main
+
+
+
+
+
+
+// ----------------------------------------------------------------- Helper Methods
+
 
 
 
@@ -497,6 +922,7 @@ double* getSavitzkyGolayCoefs(int poly_order,
       }return coefs;
     }// End of found coefficients
   }// End of data loop
+  
   
   
   // default case: zeroes

@@ -8,6 +8,9 @@
 #include "bithelper.h"
 using namespace SiPM;
 
+// Toggle this flag to enable/disable printing in the constructor
+//#define printFileInfo
+
 #ifdef __CINT__
 typedef unsigned int uint8_t;
 typedef unsigned int uint32_t;
@@ -39,12 +42,16 @@ class IVBinaryFile {
 	//_SIPM_ID = ReadData<uint8_t>(_file);
 	_Socket = ReadData<uint8_t>(_file); 
 	
+#ifdef printFileInfo
 	printf("version:%d %d %s %d %s socket_%d\n", version, _TrayIDStringLength,_TrayID, _SipmIDStringLength, _Sipm_ID_String, _Socket);
+#endif
 	
 	_timestamp = ReadData<uint64_t>(_file);
     //_timestamp -= 2082844800U;
 	_DMM_resistance = ReadData<double>(_file);
-	printf("TS:%llu, dmm:%f\n", _timestamp, _DMM_resistance); 
+#ifdef printFileInfo
+	printf("TS:%llu, dmm:%f\n", _timestamp, _DMM_resistance);
+#endif
 	
 	_ntemp = 10;
     _temps_initial = new double[_ntemp];
