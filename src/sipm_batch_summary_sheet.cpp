@@ -15,6 +15,10 @@
 #include "SiPMDataReader.hpp"
 #include "sipm_analysis_helper.hpp"
 
+
+// preprocessor to switch the plot style for formal paper plots
+#define paperplot
+
 //========================================================================== Global Variables
 
 // Some helpful label strings
@@ -86,6 +90,13 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
   gCanvas_solo = new TCanvas();
   gCanvas_double = new TCanvas();
   gStyle->SetOptStat(0);
+  
+  
+  // Paper specific style settings
+#ifdef paperplot
+  
+  
+#endif
   
 
   // Test averaging methods

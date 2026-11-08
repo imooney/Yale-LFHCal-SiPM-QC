@@ -8,8 +8,11 @@
 //  https://arxiv.org/abs/1606.07805
 //  https://doi.org/10.1016/j.nima.2017.01.002
 //
+// No genAI tools were used for the creation of this file.
+//
 //  Changelog ::
 //    - 09/14/2026    : Created by Ryan Hamilton
+//    - 11/03/2026    : Working method using peak fixing/parameter solver
 //  *--
 
 #include <filesystem>
@@ -21,6 +24,7 @@
 // Toggle between fit modes:
 //    fit1 :: Default (as described in ref. with 3rd der from SG, no smoothing)
 //    fit2 :: fixpeak (fit only to peaks, and use the extracted peaks to solve for parameters)
+//    fit3 :: Perform an integration to estimate both the
 #define fit2
 
 //========================================================================== Global Variables
@@ -35,7 +39,7 @@ const char string_tempcorr[2][50] = {"#color[2]{#bf{NOT}} Temperature corrected 
 // Controls for the Savitzky-Golay filter
 int SG_poly_order = 3;
 int SG_window_oneside = 5; // Full convolution window size is 2r + 1
-const int nsmooths = 3;
+const int nsmooths = 2;
 
 // Controlls for gaussian fit in fixpeak mode
 int nbin_fit_range_gauss = 3;
@@ -127,23 +131,34 @@ void analyze_third_derivative() {
   int ntotal_goodfits[2] = {0};
   int nbin_params = 100;
   TH1D* hist_params[2][4];
+  TH1D* hist_hratio[2];
+  TH1D* hist_hratio_failed[2];
+  TH1D* hist_residuals_3derV[2];
+  TH1D* hist_residuals_3derH[2];
+  TH1D* hist_residuals_NullV[2];
+  TH1D* hist_residuals_NullH[2];
+  TGraph* corr_breakdown_3derV[2];
+  TGraph* corr_breakdown_3derH[2];
+  std::vector<double> corr_global_3derV[2];
+  std::vector<double> corr_global_3derH[2];
+  std::vector<double> corr_global_SPS[2];
   char string_robotmode[2][20] = {"cassette","robot"};
   int color_robotmode[2] = {kBlue + 2, kRed + 2};
   for (int i_robot = 0; i_robot < 2; ++i_robot) {
     hist_params[i_robot][0] = new TH1D(Form("hist_A_%s", string_robotmode[i_robot]), 
-                                       ";A [A / V^{3}];1/N^{fit} dN^{fit}/dA",
+                                       ";A [A / V^{3}];1/N^{fit} dN^{fit}/dA [V^{3}/A]",
                               nbin_params, 0, 1.2e-6);
     hist_params[i_robot][0]->SetLineColor(color_robotmode[i_robot]);
     hist_params[i_robot][0]->SetMarkerColor(color_robotmode[i_robot]);
     
     hist_params[i_robot][1] = new TH1D(Form("hist_V_%s", string_robotmode[i_robot]), 
-                                       ";V_{01} [V];1/N^{fit} dN^{fit}/dV",
+                                       ";V_{01} [V];1/N^{fit} dN^{fit}/dV [1/V]",
                               nbin_params, 37.5, 39.5);
     hist_params[i_robot][1]->SetLineColor(color_robotmode[i_robot]);
     hist_params[i_robot][1]->SetMarkerColor(color_robotmode[i_robot]);
     
     hist_params[i_robot][2] = new TH1D(Form("hist_s_%s", string_robotmode[i_robot]), 
-                                       ";#sigma [V];1/N^{fit} dN^{fit}/d#sigma",
+                                       ";#sigma [V];1/N^{fit} dN^{fit}/d#sigma [1/V]",
                               nbin_params, 0.105, 0.16);
     hist_params[i_robot][2]->SetLineColor(color_robotmode[i_robot]);
     hist_params[i_robot][2]->SetMarkerColor(color_robotmode[i_robot]);
@@ -155,11 +170,59 @@ void analyze_third_derivative() {
     double delta_log_binedge = (logbinedge[1] - logbinedge[0]) / nbin_params;
     for (int i = 0; i <= nbin_params; ++i) vector_log_binedge.push_back(TMath::Exp(logbinedge[0] + i * delta_log_binedge));
     hist_params[i_robot][3] = new TH1D(Form("hist_h_%s", string_robotmode[i_robot]), 
-                                       ";h [V];1/N^{fit} dN^{fit}/dh",
+                                       ";h [V];1/N^{fit} dN^{fit}/dh [1/V]",
                               nbin_params, vector_log_binedge.data());
     hist_params[i_robot][3]->SetLineColor(color_robotmode[i_robot]);
     hist_params[i_robot][3]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    
+    // Histogram of ratios h+/h-
+    hist_hratio[i_robot] = new TH1D(Form("hist_hratio_%s",string_robotmode[i_robot]),
+                                    ";h_{+}/h_{-};Counts",
+                                    nbin_params, -2, 0);
+    hist_hratio[i_robot]->SetLineColor(color_robotmode[i_robot]);
+    hist_hratio[i_robot]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    hist_hratio_failed[i_robot] = new TH1D(Form("hist_hratio_failed_%s",string_robotmode[i_robot]),
+                                    ";h_{+}/h_{-};Counts",
+                                    nbin_params, -2, 0);
+    hist_hratio_failed[i_robot]->SetLineColor(color_robotmode[i_robot]);
+    hist_hratio_failed[i_robot]->SetMarkerColor(color_robotmode[i_robot]);
+    hist_hratio_failed[i_robot]->SetFillColorAlpha(color_robotmode[i_robot],0.2);
+    
+    
+    // Histograms for residuals against SPS measurements
+    hist_residuals_3derV[i_robot] = new TH1D(Form("hist_residuals_3derV_%s",string_robotmode[i_robot]),
+                                             ";3^{rd} Derivative V_{br} - SPS V_{br} [V];Counts",
+                                             nbin_params, 0, 3);
+    hist_residuals_3derV[i_robot]->SetLineColor(color_robotmode[i_robot]);
+    hist_residuals_3derV[i_robot]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    hist_residuals_3derH[i_robot] = new TH1D(Form("hist_residuals_3derH_%s",string_robotmode[i_robot]),
+                                             ";3^{rd} Derivative V_{br} - SPS V_{br} [V];Counts",
+                                             nbin_params, -40, 0);
+    hist_residuals_3derH[i_robot]->SetLineColor(color_robotmode[i_robot]);
+    hist_residuals_3derH[i_robot]->SetMarkerColor(color_robotmode[i_robot]);
+    
+    
+    // NUll hypothesis histograms
+    hist_residuals_NullV[i_robot] = new TH1D(Form("hist_residuals_NullV_%s",string_robotmode[i_robot]),
+                                             ";Null Residual 39.0V - SPS V_{br} [V];Counts",
+                                             nbin_params, 0, 3);
+    hist_residuals_NullV[i_robot]->SetLineColor(color_robotmode[i_robot]);
+    hist_residuals_NullV[i_robot]->SetMarkerColor(color_robotmode[i_robot]);
+    hist_residuals_NullV[i_robot]->SetFillColorAlpha(color_robotmode[i_robot],0.2);
+    
+    hist_residuals_NullH[i_robot] = new TH1D(Form("hist_residuals_NullH_%s",string_robotmode[i_robot]),
+                                             ";Null Residual 30.0V - SPS V_{br} [V];Counts",
+                                             nbin_params, -40, 0);
+    hist_residuals_NullH[i_robot]->SetLineColor(color_robotmode[i_robot]);
+    hist_residuals_NullH[i_robot]->SetMarkerColor(color_robotmode[i_robot]);
+    hist_residuals_NullH[i_robot]->SetFillColorAlpha(color_robotmode[i_robot],0.2);
+    
   }// End of parameter histogram setup
+  
+ 
   
   // ----------------------------------------------------------------- Start of SiPM loop
   
@@ -206,6 +269,10 @@ void analyze_third_derivative() {
     double parm_V[460];
     double parm_s[460];
     double parm_h[460];
+    std::vector<double> corrdata_3derV;
+    std::vector<double> corrdata_3derH;
+    std::vector<double> corrdata_SPS_V;
+    std::vector<double> corrdata_SPS_H;
     
     
     // Begin SiPM loop for this tray
@@ -216,6 +283,8 @@ void analyze_third_derivative() {
       // Stat the desired file to check the data exists
       int row_index = i_SiPM / 20;
       int col_index = i_SiPM % 20;
+//      int row_index = i_SiPM % 23;
+//      int col_index = i_SiPM / 23;
       char fulldir[200];
       snprintf(fulldir, 200, "%s/IV_%s_%i_%i.bin", basedir, trayno, row_index, col_index);
       
@@ -474,6 +543,12 @@ void analyze_third_derivative() {
         parm_V[i_SiPM] = -999;
         parm_s[i_SiPM] = -999;
         parm_h[i_SiPM] = -999;
+        hist_hratio_failed[is_robot]->Fill(hratio);
+        corrdata_3derV.push_back(-999);
+        corrdata_3derH.push_back(-999);
+        corr_global_3derV[is_robot].push_back(-999);
+        corr_global_3derH[is_robot].push_back(-999);
+//        std::cout << "3derV push back " << i_SiPM << " :: -999" << std::endl;
         continue;
       }
       
@@ -498,8 +573,17 @@ void analyze_third_derivative() {
       parm_V[i_SiPM] = bestparams_baseform[1];
       parm_s[i_SiPM] = bestparams_baseform[2];
       parm_h[i_SiPM] = -bestparams_baseform[3];
+      
+      // Histograms of parameters and results
       for (int p = 0; p < 3; ++p) hist_params[is_robot][p]->Fill(bestparams_baseform[p]);
       hist_params[is_robot][3]->Fill(-bestparams_baseform[3]);
+      hist_hratio[is_robot]->Fill(hratio);
+      
+      // Correlation plots
+      corrdata_3derV.push_back(bestparams_baseform[1]);
+      corrdata_3derH.push_back(bestparams_baseform[1] + bestparams_baseform[3]);
+      corr_global_3derV[is_robot].push_back(bestparams_baseform[1]);
+      corr_global_3derH[is_robot].push_back(bestparams_baseform[1] + bestparams_baseform[3]);
       
       if (_print_fit_info) {
         std::cout << "Best parameters :: {";
@@ -649,11 +733,11 @@ void analyze_third_derivative() {
     
     // Set up canvas
     gCanvas_solo->Clear();
-    gCanvas_solo->SetCanvasSize(1500, 600);
+    gCanvas_solo->SetCanvasSize(1500, 1500);
     gCanvas_solo->cd();
     gPad->SetTicks(1,1);
     gPad->SetRightMargin(0.02);
-    gPad->SetLeftMargin(0.06);
+    gPad->SetLeftMargin(0.09);
     gPad->SetTopMargin(0.11);
     
       
@@ -681,6 +765,7 @@ void analyze_third_derivative() {
                                              ";SiPM index [flattened];V_{br} [V]",
                                              SPS_size, 0, SPS_size);
     
+    
     // Append all data
     if (flag_run_at_25_celcius) {
       for (int i_IV = 1; i_IV <= IV_size; ++i_IV) {
@@ -696,9 +781,29 @@ void analyze_third_derivative() {
         hist_indexed_Vpeak->SetBinContent(i_IV, gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_IV - 1));
         hist_indexed_3derV->SetBinContent(i_IV, parm_V[i_IV - 1]);
         hist_indexed_3derH->SetBinContent(i_IV, parm_V[i_IV - 1] - parm_h[i_IV - 1]);
-      }
+        
+        
+      }// End of IV tabulating
       for (int i_SPS = 1; i_SPS <= SPS_size; ++i_SPS) {
         hist_indexed_Vbreakdown->SetBinContent(i_SPS, gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        
+        corrdata_SPS_V.push_back(gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        corrdata_SPS_H.push_back(gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        corr_global_SPS[is_robot].push_back(gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        
+        
+        // Fill residual histograms
+        if (parm_V[i_SPS - 1] < 0) continue;
+        
+        hist_residuals_3derV[is_robot]->Fill(parm_V[i_SPS - 1] - gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        hist_residuals_NullV[is_robot]->Fill(39.0 - gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        
+        
+        if (parm_V[i_SPS - 1] - parm_h[i_SPS - 1] < 0 ||
+            gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_SPS - 1) < 0) continue;
+        
+        hist_residuals_3derH[is_robot]->Fill(parm_V[i_SPS - 1] - parm_h[i_SPS - 1] - gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
+        hist_residuals_NullH[is_robot]->Fill(30.0 - gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SPS - 1));
       }
     }
     
@@ -723,9 +828,10 @@ void analyze_third_derivative() {
     //    std::cout << "Average Vbr :: IV = " << avg_voltages[0] << ", SPS = " << avg_voltages[1] << "]." << std::endl;
     //    std::cout << "Voltplot limits :: [" << voltplot_limits[0] << ',' << voltplot_limits[1] << "]." << std::endl;
     
-    if (voltplot_limits[1] - voltplot_limits[0] < 0.25) {
+    if (true) {
+//    if (voltplot_limits[1] - voltplot_limits[0] < 0.25) {
       voltplot_limits[0] = voltplot_limits_static[0];
-      voltplot_limits[1] = voltplot_limits_static[1];
+      voltplot_limits[1] = voltplot_limits_static[1] - 10 * (1-is_robot);
     }
     
     // *-- plot histograms to represent the indexed SiPM test results
@@ -750,28 +856,28 @@ void analyze_third_derivative() {
     // Draw reference averaged +/- 50 MV lines
     TLine* avg_line = new TLine();
     
-    // Average line: V_peak (IV)
-    avg_line->SetLineColor(kBlack);
-    avg_line->DrawLine(0, avg_voltages[0], IV_size, avg_voltages[0]);
-    avg_line->SetLineColor(kGray+2);
-    avg_line->SetLineStyle(7);
-    avg_line->DrawLine(0, avg_voltages[0]+0.05, IV_size, avg_voltages[0]+0.05);
-    avg_line->DrawLine(0, avg_voltages[0]-0.05, IV_size, avg_voltages[0]-0.05);
-    
-    // Average line: V_breakdown (SPS)
-    avg_line->SetLineStyle(1);
-    avg_line->SetLineColor(kBlack);
-    avg_line->DrawLine(0, avg_voltages[1], IV_size, avg_voltages[1]);
-    avg_line->SetLineColor(kGray+2);
-    avg_line->SetLineStyle(7);
-    avg_line->DrawLine(0, avg_voltages[1]+0.05, IV_size, avg_voltages[1]+0.05);
-    avg_line->DrawLine(0, avg_voltages[1]-0.05, IV_size, avg_voltages[1]-0.05);
-    
-    // Cassette test lines
-    TLine* cassette_line = new TLine();
-    cassette_line->SetLineColor(kGray+1);
-    cassette_line->SetLineStyle(6);
-    for (int i = 1; i <= 14; ++i) cassette_line->DrawLine(32*i, voltplot_limits[0], 32*i, voltplot_limits[1]);
+//    // Average line: V_peak (IV)
+//    avg_line->SetLineColor(kBlack);
+//    avg_line->DrawLine(0, avg_voltages[0], IV_size, avg_voltages[0]);
+//    avg_line->SetLineColor(kGray+2);
+//    avg_line->SetLineStyle(7);
+//    avg_line->DrawLine(0, avg_voltages[0]+0.05, IV_size, avg_voltages[0]+0.05);
+//    avg_line->DrawLine(0, avg_voltages[0]-0.05, IV_size, avg_voltages[0]-0.05);
+//    
+//    // Average line: V_breakdown (SPS)
+//    avg_line->SetLineStyle(1);
+//    avg_line->SetLineColor(kBlack);
+//    avg_line->DrawLine(0, avg_voltages[1], IV_size, avg_voltages[1]);
+//    avg_line->SetLineColor(kGray+2);
+//    avg_line->SetLineStyle(7);
+//    avg_line->DrawLine(0, avg_voltages[1]+0.05, IV_size, avg_voltages[1]+0.05);
+//    avg_line->DrawLine(0, avg_voltages[1]-0.05, IV_size, avg_voltages[1]-0.05);
+//    
+//    // Cassette test lines
+//    TLine* cassette_line = new TLine();
+//    cassette_line->SetLineColor(kGray+1);
+//    cassette_line->SetLineStyle(6);
+//    for (int i = 1; i <= 14; ++i) cassette_line->DrawLine(32*i, voltplot_limits[0], 32*i, voltplot_limits[1]);
     
     // assure points sit on top of lines
     hist_indexed_Vpeak->Draw("hist p same");
@@ -782,31 +888,33 @@ void analyze_third_derivative() {
     // Legend for labeling the two V_breakdown measurement types
     float leg_extra_space = 0;
     if (flag_run_at_25_celcius) leg_extra_space = 0.04;
-    TLegend* vbd_legend = new TLegend(0.635, 0.36 + leg_extra_space, 0.90, 0.51 + leg_extra_space);
+    TLegend* vbd_legend = new TLegend(0.635, 0.16 + leg_extra_space, 0.90, 0.31 + leg_extra_space);
     vbd_legend->SetLineWidth(0);
     vbd_legend->AddEntry(hist_indexed_Vpeak,       Form("IV V_{bd} #kern[0.3]{(#color[2]{%i} outliers)}",
                                                         countOutliersVpeak(i_tray, flag_run_at_25_celcius)), "p");
     vbd_legend->AddEntry(hist_indexed_Vbreakdown,  Form("SPS V_{bd} #kern[0.1]{(#color[2]{%i} outliers)}",
                                                         countOutliersVbreakdown(i_tray, flag_run_at_25_celcius)), "p");
     vbd_legend->AddEntry(hist_indexed_3derV, "3^{rd} Der. V_{01}", "p");
+    vbd_legend->AddEntry(hist_indexed_3derH, "3^{rd} Der. V_{10}", "p");
+//    vbd_legend->SetFillColorAlpha(kWhite, 0.0);
     vbd_legend->Draw();
     
     // Legend for the lines marking tray average, test sets
-    TLegend* line_legend = new TLegend(0.15, 0.315 + leg_extra_space, 0.45, 0.55 + leg_extra_space);
-    line_legend->SetLineWidth(0);
-    hist_indexed_Vpeak->SetLineColor(kBlack);
-    if (flag_use_all_trays_for_averages) line_legend->AddEntry(hist_indexed_Vpeak, "Average over all trays", "l");
-    else                                 line_legend->AddEntry(hist_indexed_Vpeak, "Average over tray", "l");
-    line_legend->AddEntry(avg_line, "Average #pm 50mV", "l");
-    line_legend->AddEntry(cassette_line, "Test Runs (32 SiPM per test)", "l");
-    line_legend->Draw();
+//    TLegend* line_legend = new TLegend(0.15, 0.315 + leg_extra_space, 0.45, 0.55 + leg_extra_space);
+//    line_legend->SetLineWidth(0);
+//    hist_indexed_Vpeak->SetLineColor(kBlack);
+//    if (flag_use_all_trays_for_averages) line_legend->AddEntry(hist_indexed_Vpeak, "Average over all trays", "l");
+//    else                                 line_legend->AddEntry(hist_indexed_Vpeak, "Average over tray", "l");
+//    line_legend->AddEntry(avg_line, "Average #pm 50mV", "l");
+//    line_legend->AddEntry(cassette_line, "Test Runs (32 SiPM per test)", "l");
+//    line_legend->Draw();
     
     
     // Draw some text giving info on the setup
-    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.06, 0.91, false, kBlack, 0.045);
-    drawText("#bf{ePIC} Test Stand", 0.06, 0.955, false, kBlack, 0.045);
-    drawText(Form("Hamamatsu #bf{%s} Tray #%s", Hamamatsu_SiPM_Code, gReader->GetTrayStrings()->at(i_tray).c_str()), 0.98, 0.95, true, kBlack, 0.05);
-    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.98, 0.905, true, kBlack, 0.04);
+    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", 0.06, 0.91, false, kBlack, 0.027);
+    drawText("#bf{ePIC} Test Stand", 0.06, 0.955, false, kBlack, 0.027);
+    drawText(Form("Hamamatsu #bf{%s} Tray #%s", Hamamatsu_SiPM_Code, gReader->GetTrayStrings()->at(i_tray).c_str()), 0.98, 0.95, true, kBlack, 0.032);
+    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.98, 0.905, true, kBlack, 0.022);
     
     
     //save histograms
@@ -816,14 +924,55 @@ void analyze_third_derivative() {
                               nsmooths));
     
     
+    // Correlation plots
+    gCanvas_solo->Clear();
+    gCanvas_solo->SetLeftMargin(0.15);
+    TGraph* graph_corr_3derV = new TGraph(corrdata_3derV.size(),
+                                          corrdata_3derV.data(), 
+                                          corrdata_SPS_V.data());
+    graph_corr_3derV->SetName("graph_corr_3derV");
+    graph_corr_3derV->SetTitle(";3^{rd} Der. V_{01} [V];SPS V_{bd} [V]");
+    graph_corr_3derV->SetLineColor(kRed + 2);
+    graph_corr_3derV->SetMarkerColor(kRed + 2);
+    graph_corr_3derV->SetMarkerStyle(24);
+    
+    graph_corr_3derV->GetXaxis()->SetLimits(37, 39);
+    graph_corr_3derV->GetYaxis()->SetRangeUser(37, 39);
+    graph_corr_3derV->Draw("ap");
+    
+    gCanvas_solo->SaveAs(Form("%s/correlationV_%s_%ismooth.pdf",
+                              outdir,
+                              string_robotmode[is_robot],
+                              nsmooths));
+    
+    gCanvas_solo->Clear();
+    TGraph* graph_corr_3derH = new TGraph(corrdata_3derH.size(),
+                                          corrdata_3derH.data(),
+                                          corrdata_SPS_H.data());
+    graph_corr_3derH->SetName("graph_corr_3derH");
+    graph_corr_3derH->SetTitle(";3^{rd} Der. V_{10} [V];SPS V_{bd} [V]");
+    graph_corr_3derH->SetLineColor(kBlue + 2);
+    graph_corr_3derH->SetMarkerColor(kBlue + 2);
+    graph_corr_3derH->SetMarkerStyle(25);
+    
+    graph_corr_3derH->GetXaxis()->SetLimits(0, 40);
+    graph_corr_3derH->GetYaxis()->SetRangeUser(37, 39);
+    graph_corr_3derH->Draw("ap");
+    
+    gCanvas_solo->SaveAs(Form("%s/correlationH_%s_%ismooth.pdf",
+                              outdir,
+                              string_robotmode[is_robot],
+                              nsmooths));
+    
+    
     delete hist_indexed_Vpeak;
     delete hist_indexed_Vbreakdown;
     delete hist_indexed_3derV;
     delete hist_indexed_3derH;
-    
-    
-    // debug one tray
-//    if (i_tray > 0) break;
+    delete graph_corr_3derV;
+    delete graph_corr_3derH;
+    // debug by running only a few trays
+//    if (i_tray >= 0) break;
   }// End of tray loop
   
   
@@ -848,7 +997,7 @@ void analyze_third_derivative() {
   gPad->SetLogx();
   
   canvas_quad->cd(1);
-  TLegend* leg = new TLegend(0.5, 0.6, 0.85, 0.85);
+  TLegend* leg = new TLegend(0.60, 0.6, 0.85, 0.85);
   leg->SetLineWidth(0);
   leg->AddEntry(hist_params[0][0], "Cassette", "l");
   leg->AddEntry(hist_params[1][0], "Robot", "l");
@@ -860,6 +1009,103 @@ void analyze_third_derivative() {
                 color_robotmode[1],ntotal_goodfits[1], ntotal_SiPMs[1]), 0.05, 0.97, false, kBlack, 0.02);
   
   canvas_quad->SaveAs("../plots/3rdder/3rdder_param_hist.pdf");
+  
+  
+  // Resiudal histograms -- turn off voltage
+  gCanvas_solo->cd();
+  gPad->SetLeftMargin(0.13);
+  hist_residuals_3derH[0]->GetYaxis()->SetRangeUser(0, 1.15*TMath::Max(hist_residuals_3derH[0]->GetMaximum(),
+                                                                       hist_residuals_3derH[1]->GetMaximum()));
+  hist_residuals_3derH[0]->Draw("hist");
+  hist_residuals_3derH[1]->Draw("hist same");
+  hist_residuals_NullH[0]->Draw("hist same");
+  hist_residuals_NullH[1]->Draw("hist same");
+  TLegend* leg_alt = new TLegend(0.40, 0.6, 0.65, 0.85);
+  leg_alt->SetLineWidth(0);
+  leg_alt->AddEntry(hist_params[0][0], Form("Cassette (#sigma = %.2fmV)", 1000*hist_residuals_3derH[0]->GetStdDev()), "l");
+  leg_alt->AddEntry(hist_params[1][0], Form("Robot (#sigma = %.2fmV)", 1000*hist_residuals_3derH[1]->GetStdDev()), "l");
+  leg_alt->AddEntry(hist_residuals_NullV[0], "Cassette Null", "f");
+  leg_alt->AddEntry(hist_residuals_NullV[1], "Robot Null", "f");
+  leg_alt->Draw();
+  drawText("Turn-off Voltage V_{10} = V_{01} - h", gPad->GetLeftMargin(), 1.04 - gPad->GetTopMargin());
+  
+  gCanvas_solo->SaveAs("../plots/3rdder/3rdder_turnoff_residuals.pdf");
+  
+  // Resiudal histograms -- turn on voltage
+  gCanvas_solo->cd();
+  hist_residuals_3derV[0]->GetYaxis()->SetRangeUser(0, 1.15*TMath::Max(hist_residuals_3derV[0]->GetMaximum(),
+                                                                       hist_residuals_3derV[1]->GetMaximum()));
+  hist_residuals_3derV[0]->Draw("hist");
+  hist_residuals_3derV[1]->Draw("hist same");
+  hist_residuals_NullV[0]->Draw("hist same");
+  hist_residuals_NullV[1]->Draw("hist same");
+  TLegend* leg_alt2 = new TLegend(0.40, 0.6, 0.65, 0.85);
+  leg_alt2->SetLineWidth(0);
+  leg_alt2->AddEntry(hist_params[0][0], Form("Cassette (#sigma = %.2fmV)", 1000*hist_residuals_3derV[0]->GetStdDev()), "l");
+  leg_alt2->AddEntry(hist_params[1][0], Form("Robot (#sigma = %.2fmV)", 1000*hist_residuals_3derV[1]->GetStdDev()), "l");
+  leg_alt2->AddEntry(hist_residuals_NullV[0], "Cassette Null", "f");
+  leg_alt2->AddEntry(hist_residuals_NullV[1], "Robot Null", "f");
+  leg_alt2->Draw();
+  
+  drawText("Turn-on Voltage V_{01}", gPad->GetLeftMargin(), 1.04 - gPad->GetTopMargin());
+  
+  gCanvas_solo->SaveAs("../plots/3rdder/3rdder_turnon_residuals.pdf");
+  
+  
+  
+  // h+/h- ratio histograms
+  gCanvas_solo->cd();
+  gPad->SetLogy();
+  hist_hratio[0]->Draw("hist");
+  hist_hratio[1]->Draw("hist same");
+  hist_hratio_failed[0]->Draw("hist same");
+  hist_hratio_failed[1]->Draw("hist same");
+  
+  leg->AddEntry(hist_hratio_failed[0], "Cassette (Failed)", "f");
+  leg->AddEntry(hist_hratio_failed[1], "Robot (Failed)", "f");
+  leg->Draw();
+  
+  gCanvas_solo->SaveAs("../plots/3rdder/3rdder_hist_hratio.pdf");
+  
+  
+  // Correlations among all data
+  for (int i_robot = 0; i_robot < 2; ++i_robot) {
+    if (corr_global_3derH[i_robot].size() == 0) continue;
+    
+    gCanvas_solo->Clear();
+    corr_breakdown_3derV[i_robot] = new TGraph(corr_global_3derV[i_robot].size(),
+                                               corr_global_3derV[i_robot].data(),
+                                               corr_global_SPS[i_robot].data());
+    corr_breakdown_3derV[i_robot]->SetName("graph_corr_3derV_all");
+    corr_breakdown_3derV[i_robot]->SetTitle(";3^{rd} Der. V_{01} [V];SPS V_{bd} [V]");
+    corr_breakdown_3derV[i_robot]->SetLineColor(kRed + 2);
+    corr_breakdown_3derV[i_robot]->SetMarkerColor(kRed + 2);
+    corr_breakdown_3derV[i_robot]->SetMarkerStyle(24);
+    
+    corr_breakdown_3derV[i_robot]->GetXaxis()->SetLimits(37.5, 39.5);
+    corr_breakdown_3derV[i_robot]->GetYaxis()->SetRangeUser(37, 39);
+    corr_breakdown_3derV[i_robot]->Draw("ap");
+    
+    gCanvas_solo->SaveAs(Form("../plots/3rdder/3rdder_correlationV_%s.pdf",string_robotmode[i_robot]));
+    
+    gCanvas_solo->Clear();
+    corr_breakdown_3derH[i_robot] = new TGraph(corr_global_3derH[i_robot].size(),
+                                               corr_global_3derH[i_robot].data(),
+                                               corr_global_SPS[i_robot].data());
+    corr_breakdown_3derH[i_robot]->SetName("graph_corr_3derH_all");
+    corr_breakdown_3derH[i_robot]->SetTitle(";3^{rd} Der. V_{10} [V];SPS V_{bd} [V]");
+    corr_breakdown_3derH[i_robot]->SetLineColor(kBlue + 2);
+    corr_breakdown_3derH[i_robot]->SetMarkerColor(kBlue + 2);
+    corr_breakdown_3derH[i_robot]->SetMarkerStyle(25);
+    
+    corr_breakdown_3derH[i_robot]->GetXaxis()->SetLimits(10, 40);
+    corr_breakdown_3derH[i_robot]->GetYaxis()->SetRangeUser(37, 39);
+    corr_breakdown_3derH[i_robot]->Draw("ap");
+    
+    gCanvas_solo->SaveAs(Form("../plots/3rdder/3rdder_correlationH_%s.pdf",string_robotmode[i_robot]));
+    
+  }// End of correlation plots
+  
   
   
   // Final memory clear and return
