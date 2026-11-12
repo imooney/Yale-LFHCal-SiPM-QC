@@ -63,6 +63,7 @@ void makeTrayMapVpeak(bool flag_run_at_25_celcius = true);
 void makeTrayMapVbreakdown(bool flag_run_at_25_celcius = true);
 void makeTestMapVpeak(bool flag_run_at_25_celcius = true);
 void makeTestMapVbreakdown(bool flag_run_at_25_celcius = true);
+void makeTrayMapOutliership(bool flag_run_at_25_celcius = true);
 
 // Dark current analysis
 void makeHist_DarkCurrent();
@@ -140,7 +141,11 @@ void sipm_batch_summary_sheet(const char* traylist_identifier = "production") {
 //  makeTestMapVbreakdown(false);
   
   
-  makeCorrelationIVSPS("250821-1305",true);
+  std::string tray_to_correlate = "260312-1901";
+  makeCorrelationIVSPS(tray_to_correlate,false);
+  makeCorrelationIVSPS(tray_to_correlate,true);
+  
+  makeTrayMapOutliership();
   
   
   // Write data in a format easily transferrable to a spreadsheet
@@ -1850,7 +1855,7 @@ void makeCorrelationVbrOutliers(bool flag_run_at_25_celcius) {
 // Map the IV V_peak results to the tray poisitons in a 2D grid
 // Helpful for checking if strange trends are manufacturing flaws or
 // systematic/statistical errors in the testing procedure
-void makeTrayMapVpeak(bool flag_run_at_25_celcius = true) {
+void makeTrayMapVpeak(bool flag_run_at_25_celcius) {
   
   gStyle->SetPalette(kSunset);
   gCanvas_solo->Clear();
@@ -1914,7 +1919,7 @@ void makeTrayMapVpeak(bool flag_run_at_25_celcius = true) {
 // Map the SPS V_breakdown results to the tray poisitons in a 2D grid
 // Helpful for checking if strange trends are manufacturing flaws or
 // systematic/statistical errors in the testing procedure
-void makeTrayMapVbreakdown(bool flag_run_at_25_celcius = true) {
+void makeTrayMapVbreakdown(bool flag_run_at_25_celcius) {
   
   gStyle->SetPalette(kSunset);
   gCanvas_solo->Clear();
@@ -1979,7 +1984,7 @@ void makeTrayMapVbreakdown(bool flag_run_at_25_celcius = true) {
 // Map the IV V_peak results to the cassette test poisitons in a 2D grid
 // Helpful for checking if strange trends are manufacturing flaws or
 // systematic/statistical errors in the testing procedure
-void makeTestMapVpeak(bool flag_run_at_25_celcius = true) {
+void makeTestMapVpeak(bool flag_run_at_25_celcius) {
   
   gStyle->SetPalette(kSunset);
   gCanvas_solo->Clear();
@@ -2042,7 +2047,7 @@ void makeTestMapVpeak(bool flag_run_at_25_celcius = true) {
 // Map the SPS V_breakdown results to the tray poisitons in a 2D grid
 // Helpful for checking if strange trends are manufacturing flaws or
 // systematic/statistical errors in the testing procedure
-void makeTestMapVbreakdown(bool flag_run_at_25_celcius = true) {
+void makeTestMapVbreakdown(bool flag_run_at_25_celcius) {
   
   gStyle->SetPalette(kSunset);
   gCanvas_solo->Clear();
@@ -2103,3 +2108,146 @@ void makeTestMapVbreakdown(bool flag_run_at_25_celcius = true) {
 
 
 
+
+
+// Explore whether SiPMs in one position of the tray tend to be outliers more often
+void makeTrayMapOutliership(bool flag_run_at_25_celcius) {
+  
+  gStyle->SetPalette(kSunset);
+  gCanvas_solo->Clear();
+  gCanvas_solo->SetCanvasSize(750, 600);
+  gCanvas_solo->cd();
+  gPad->SetTicks(1,1);
+  gPad->SetLogy(0);
+  gPad->SetRightMargin(0.17);
+  gPad->SetLeftMargin(0.085);
+  gPad->SetTopMargin(0.11);
+  gPad->SetBottomMargin(0.095);
+  
+  // count the number of robot and cassette trays
+  int ntray[2] = {0};
+  for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) ++ntray[gReader->GetTrayModes()->at(i_tray)];
+  
+  for (int i_cass = 0; i_cass < 2; ++i_cass) {
+    
+    TH2F* nlocal_SiPM = new TH2F(Form("hist_count_SiPMs_%s", string_testmode[i_cass]),
+                                 Form(";SiPM Tray Column;SiPM Tray Row;Total Good SiPM Measurements"),
+                                 NCOL, 0, NCOL, NROW, 0, NROW);
+    TH2F* map_tray_outliers_IV = new TH2F(Form("map_tray_outliers_IV_%s", string_testmode[i_cass]),
+                                          Form(";SiPM Tray Column;SiPM Tray Row;Average #color[2]{#bf{IV}} V_{br} Outliership among %i Trays [V]",
+                                               ntray[i_cass]),
+                                          NCOL, 0, NCOL, NROW, 0, NROW);
+    TH2F* map_tray_outliers_PS = new TH2F(Form("map_tray_outliers_SPS_%s", string_testmode[i_cass]),
+                                          Form(";SiPM Tray Column;SiPM Tray Row;Average #color[2]{#bf{SPS}} V_{br} Outliership among %i Trays [V]",
+                                               ntray[i_cass]),
+                                          NCOL, 0, NCOL, NROW, 0, NROW);
+    
+    
+    // Iterate over all available data
+    for (int i_tray = 0; i_tray < gReader->GetTrayStrings()->size(); ++i_tray) {
+      if (gReader->GetTrayModes()->at(i_tray) != i_cass) continue;
+      
+      // Get averages for z axis range
+      double avg_voltage[2] = {
+        getAvgVpeak(i_tray, flag_run_at_25_celcius),
+        getAvgVbreakdown(i_tray, flag_run_at_25_celcius)
+      };
+      
+      // Make map histogram
+      for (int i_SiPM = 0; i_SiPM < 460; ++i_SiPM) {
+        if (gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SiPM) < 0) continue;
+        
+        // Keep track of the number of good SiPMs in each bin
+        nlocal_SiPM->Fill(gReader->GetSPS()->at(i_tray)->col->at(i_SiPM),
+                          gReader->GetSPS()->at(i_tray)->row->at(i_SiPM));
+        
+        if (flag_run_at_25_celcius) { // *----- Not temperature corrected
+          map_tray_outliers_IV->Fill(gReader->GetIV()->at(i_tray)->col->at(i_SiPM),
+                                     gReader->GetIV()->at(i_tray)->row->at(i_SiPM),
+                                     gReader->GetIV()->at(i_tray)->IV_Vpeak_25C->at(i_SiPM) - avg_voltage[0]);
+          map_tray_outliers_PS->Fill(gReader->GetSPS()->at(i_tray)->col->at(i_SiPM),
+                                     gReader->GetSPS()->at(i_tray)->row->at(i_SiPM),
+                                     gReader->GetSPS()->at(i_tray)->SPS_Vbd_25C->at(i_SiPM) - avg_voltage[1]);
+        } else {                      // *----- Temperature corrected
+          map_tray_outliers_IV->Fill(gReader->GetIV()->at(i_tray)->col->at(i_SiPM),
+                                     gReader->GetIV()->at(i_tray)->row->at(i_SiPM),
+                                     gReader->GetIV()->at(i_tray)->IV_Vpeak->at(i_SiPM) - avg_voltage[0]);
+          map_tray_outliers_PS->Fill(gReader->GetSPS()->at(i_tray)->col->at(i_SiPM),
+                                     gReader->GetSPS()->at(i_tray)->row->at(i_SiPM),
+                                     gReader->GetSPS()->at(i_tray)->SPS_Vbd->at(i_SiPM) - avg_voltage[1]);
+        }// End of temp corr switch
+      }// End of SiPM loop for this tray
+    }// End of tray loop
+    
+    // Scale each entry by the count of good tests
+    for (int r = 1; r <= 23; ++r) for (int c = 1; c <= 20; ++c) {
+      if (nlocal_SiPM->GetBinContent(r, c) == 0) continue;
+      map_tray_outliers_IV->SetBinContent(r, c, map_tray_outliers_IV->GetBinContent(r, c) / nlocal_SiPM->GetBinContent(r, c));
+      map_tray_outliers_PS->SetBinContent(r, c, map_tray_outliers_PS->GetBinContent(r, c) / nlocal_SiPM->GetBinContent(r, c));
+    }// End of rescale
+    
+    
+    // *----- Draw and save the figures
+    
+    // SiPM good test count
+    nlocal_SiPM->GetZaxis()->SetRangeUser(nlocal_SiPM->GetMinimum() - 5, ntray[i_cass] + 5);
+    nlocal_SiPM->GetZaxis()->SetTitleOffset(1.7);
+    nlocal_SiPM->GetYaxis()->SetTitleOffset(0.86);
+    nlocal_SiPM->Draw("colz");
+    
+    // Draw some text giving info on the setup
+    drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.95, false, kBlack, 0.035);
+    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.903, false, kBlack, 0.035);
+    drawText(Form("Hamamatsu #bf{%s} [#color[2]{%s}]", Hamamatsu_SiPM_Code, string_testmode[i_cass]), 0.99, 0.955, true, kBlack, 0.035);
+    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.99, 0.915, true, kBlack, 0.03);
+    
+    // Save the map
+    gCanvas_solo->SaveAs(Form("../plots/single_plots/mapped_tray_outliers%s/trayhist_good_tests_%s%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              string_testmode[i_cass],
+                              string_tempcorr_short[flag_run_at_25_celcius]));
+    
+    
+    // SiPM IV outliership
+    map_tray_outliers_IV->GetZaxis()->SetRangeUser(-0.05, 0.05);
+    map_tray_outliers_IV->GetZaxis()->SetTitleOffset(1.7);
+    map_tray_outliers_IV->GetYaxis()->SetTitleOffset(0.86);
+    map_tray_outliers_IV->Draw("colz");
+    
+    // Draw some text giving info on the setup
+    drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.95, false, kBlack, 0.035);
+    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.903, false, kBlack, 0.035);
+    drawText(Form("Hamamatsu #bf{%s} [#color[2]{%s}]", Hamamatsu_SiPM_Code, string_testmode[i_cass]), 0.99, 0.955, true, kBlack, 0.035);
+    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.99, 0.915, true, kBlack, 0.03);
+    
+    // Save the map
+    gCanvas_solo->SaveAs(Form("../plots/single_plots/mapped_tray_outliers%s/traymap_IV_outliership_%s%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              string_testmode[i_cass],
+                              string_tempcorr_short[flag_run_at_25_celcius]));
+    
+    
+    // SiPM SPS outliership
+    map_tray_outliers_PS->GetZaxis()->SetRangeUser(-0.05, 0.05);
+    map_tray_outliers_PS->GetZaxis()->SetTitleOffset(1.7);
+    map_tray_outliers_PS->GetYaxis()->SetTitleOffset(0.86);
+    map_tray_outliers_PS->Draw("colz");
+    
+    // Draw some text giving info on the setup
+    drawText("#bf{ePIC} Test Stand", gPad->GetLeftMargin(), 0.95, false, kBlack, 0.035);
+    drawText("#bf{Debrecen} SiPM Test Setup @ #bf{Yale}", gPad->GetLeftMargin(), 0.903, false, kBlack, 0.035);
+    drawText(Form("Hamamatsu #bf{%s} [#color[2]{%s}]", Hamamatsu_SiPM_Code, string_testmode[i_cass]), 0.99, 0.955, true, kBlack, 0.035);
+    drawText(Form("%s", string_tempcorr[flag_run_at_25_celcius]), 0.99, 0.915, true, kBlack, 0.03);
+    
+    // Save the map
+    gCanvas_solo->SaveAs(Form("../plots/single_plots/mapped_tray_outliers%s/traymap_SPS_outliership_%s%s.pdf",
+                              string_tempcorr_short[flag_run_at_25_celcius],
+                              string_testmode[i_cass],
+                              string_tempcorr_short[flag_run_at_25_celcius]));
+    
+    
+    delete map_tray_outliers_IV;
+    delete map_tray_outliers_PS;
+  }// End of robot/cassette mode loop
+  return;
+}// End of sipm_batch_summary_sheet::makeTrayMapOutliership

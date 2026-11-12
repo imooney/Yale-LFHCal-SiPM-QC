@@ -10,6 +10,9 @@
 #ifndef SiPMDataReader_t
 #define SiPMDataReader_t
 
+// Flag to read both cassette and robot data
+#define readbothmodes
+
 #include "global_vars.hpp"
 
 // Compiler flag to read with modified SPS format
@@ -186,10 +189,17 @@ private:
         valid_trays->push_back(*it);
         valid_modes->push_back(0);
       } 
+#ifdef readbothmodes
+      if (is_valid_robot) {
+        valid_trays->push_back(*it);
+        valid_modes->push_back(1);
+      }
+#else
       if (is_valid_robot && !is_valid_cassette) {
         valid_trays->push_back(*it);
         valid_modes->push_back(1);
       } 
+#endif
       if (!is_valid_cassette && !is_valid_robot) invalid_trays->push_back(*it); // Only invalid if fails for both
     }if (verbose_mode) std::cout << '}' << std::endl;
     
